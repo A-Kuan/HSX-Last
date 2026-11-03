@@ -165,6 +165,41 @@ export function listGroups(db) {
     FROM product_groups ORDER BY name COLLATE NOCASE`).all();
 }
 
+export function exportSkuRows(db) {
+  const rows = db.prepare(`SELECT s.id, s.brand, s.part_no, s.unit, s.pack_quantity, s.price, s.status, s.note,
+    g.id AS group_id, g.name AS group_name, g.reference AS group_reference, g.category AS group_category
+    FROM skus s JOIN product_groups g ON g.id = s.group_id ORDER BY g.name COLLATE NOCASE, s.id`).all();
+  const oeStmt = db.prepare("SELECT oe_no FROM sku_oe_numbers WHERE sku_id = ? ORDER BY is_primary DESC, oe_no");
+  const fitmentStmt = db.prepare(`SELECT make, series, year_from, year_to, variant, engine, position, source, verification_status, note
+    FROM sku_fitments WHERE sku_id = ? ORDER BY id`);
+  return rows.map((row) => ({
+    groupReference: row.group_reference,
+    groupName: row.group_name,
+    category: row.group_category,
+    id: row.id,
+    brand: row.brand,
+    partNo: row.part_no,
+    unit: row.unit,
+    packQuantity: row.pack_quantity,
+    price: row.price,
+    status: row.status,
+    oeNumbers: oeStmt.all(row.id).map((item) => item.oe_no),
+    fitments: fitmentStmt.all(row.id).map((item) => ({
+      make: item.make,
+      series: item.series,
+      yearFrom: item.year_from,
+      yearTo: item.year_to,
+      variant: item.variant,
+      engine: item.engine,
+      position: item.position,
+      source: item.source,
+      verificationStatus: item.verification_status,
+      note: item.note,
+    })),
+    note: row.note,
+  }));
+}
+
 export function logActivity(db, { skuId, action, summary, before = null, after = null }) {
   db.prepare(`INSERT INTO activity_logs (sku_id, action, summary, before_json, after_json, created_at)
     VALUES (?, ?, ?, ?, ?, ?)`).run(skuId, action, summary, before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, now());
@@ -308,6 +343,9 @@ function resolveGroup(db, group) {
     }
     return existing.id;
   }
+  const reference = normalizeCode(group.reference);
+  const existingByReference = db.prepare("SELECT * FROM product_groups WHERE reference = ?").get(reference);
+  if (existingByReference) return existingByReference.id;
   const idBase = normalizeCode(group.reference).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || `group-${Date.now()}`;
   let id = idBase;
   let suffix = 2;
@@ -317,7 +355,7 @@ function resolveGroup(db, group) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id,
     String(group.name).trim(),
-    normalizeCode(group.reference),
+    reference,
     String(group.image || "").trim(),
     String(group.note || "").trim(),
     String(group.category).trim(),
@@ -344,7 +382,7 @@ function convertSqliteError(error) {
 export function createSku(db, payload) {
   validatePayload(payload, { creating: true });
   const skuId = normalizeCode(payload.sku.id);
-  db.exec("BEGIN");
+  db.exec("SAVEPOINT create_sku");
   try {
     const groupId = resolveGroup(db, payload.group);
     const timestamp = now();
@@ -365,10 +403,11 @@ export function createSku(db, payload) {
     replaceRelations(db, skuId, payload.oeNumbers, payload.fitments);
     const created = readSku(db, skuId);
     logActivity(db, { skuId, action: "create", summary: "创建 SKU", after: created });
-    db.exec("COMMIT");
+    db.exec("RELEASE SAVEPOINT create_sku");
     return created;
   } catch (error) {
-    db.exec("ROLLBACK");
+    db.exec("ROLLBACK TO SAVEPOINT create_sku");
+    db.exec("RELEASE SAVEPOINT create_sku");
     throw convertSqliteError(error);
   }
 }
@@ -381,7 +420,7 @@ export function updateSku(db, skuId, payload) {
     error.status = 404;
     throw error;
   }
-  db.exec("BEGIN");
+  db.exec("SAVEPOINT update_sku");
   try {
     const groupId = resolveGroup(db, payload.group);
     db.prepare(`UPDATE skus SET group_id = ?, brand = ?, part_no = ?, unit = ?, pack_quantity = ?, price = ?, status = ?, note = ?, updated_at = ?
@@ -400,12 +439,57 @@ export function updateSku(db, skuId, payload) {
     replaceRelations(db, skuId, payload.oeNumbers, payload.fitments);
     const updated = readSku(db, skuId);
     logActivity(db, { skuId, action: "update", summary: "更新 SKU 资料", before: existing, after: updated });
-    db.exec("COMMIT");
+    db.exec("RELEASE SAVEPOINT update_sku");
     return updated;
   } catch (error) {
-    db.exec("ROLLBACK");
+    db.exec("ROLLBACK TO SAVEPOINT update_sku");
+    db.exec("RELEASE SAVEPOINT update_sku");
     throw convertSqliteError(error);
   }
+}
+
+export function importSkuRows(db, rows, { mode = "upsert", preview = false } = {}) {
+  if (!Array.isArray(rows) || !rows.length) {
+    const error = new Error("导入文件中没有 SKU 数据");
+    error.status = 422;
+    throw error;
+  }
+  if (rows.length > 5000) {
+    const error = new Error("单次最多导入 5000 个 SKU");
+    error.status = 422;
+    throw error;
+  }
+  const errors = [];
+  const results = [];
+  db.exec("BEGIN");
+  try {
+    rows.forEach((payload, index) => {
+      db.exec(`SAVEPOINT import_row_${index}`);
+      try {
+        const skuId = normalizeCode(payload?.sku?.id || "");
+        const existing = skuId ? readSku(db, skuId) : null;
+        if (existing && mode === "insert") {
+          const duplicate = new Error("SKU 编码已存在");
+          duplicate.status = 409;
+          duplicate.details = { id: "SKU 编码已存在" };
+          throw duplicate;
+        }
+        const saved = existing ? updateSku(db, skuId, payload) : createSku(db, payload);
+        results.push({ row: index + 2, id: saved.id, action: existing ? "update" : "create" });
+        db.exec(`RELEASE SAVEPOINT import_row_${index}`);
+      } catch (error) {
+        db.exec(`ROLLBACK TO SAVEPOINT import_row_${index}`);
+        db.exec(`RELEASE SAVEPOINT import_row_${index}`);
+        errors.push({ row: index + 2, id: payload?.sku?.id || "", message: error.message, details: error.details || {} });
+      }
+    });
+    if (preview || errors.length) db.exec("ROLLBACK");
+    else db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return { total: rows.length, valid: rows.length - errors.length, errors, results: errors.length ? [] : results, committed: !preview && errors.length === 0 };
 }
 
 export function updateStatus(db, skuId, status, reason = "") {

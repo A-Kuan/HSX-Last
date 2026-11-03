@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwise, CaretDown, CaretLeft, CaretRight, Check, CheckCircle,
-  DotsThree, FileText, MagnifyingGlass, Minus, PencilSimple, Plus, Prohibit,
-  Trash, X,
+  DotsThree, DownloadSimple, FileText, MagnifyingGlass, Minus, PencilSimple,
+  Plus, Prohibit, Trash, UploadSimple, X,
 } from "@phosphor-icons/react";
 
 const ASSET_BASE = `${import.meta.env.BASE_URL}assets/`;
 const API_BASE = `${import.meta.env.BASE_URL}api`;
 const STATUS_LABELS = { draft: "草稿", enabled: "启用", disabled: "停用" };
 const VERIFY_LABELS = { pending: "待核实", verified: "已核实", rejected: "不适配" };
+const CSV_HEADERS = ["商品组参考编码", "商品名称", "配件品类", "SKU编码", "品牌", "品牌件号", "基础单位", "包装数量", "销售价", "资料状态", "OE号", "车型品牌", "车系", "起始年款", "结束年款", "车型版本", "发动机配置", "安装位置", "资料来源", "核实状态", "内部备注"];
 
 async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -23,6 +24,86 @@ async function api(path, options = {}) {
     throw error;
   }
   return body;
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function downloadCsv(filename, rows) {
+  const content = `\uFEFF${rows.map((row) => row.map(csvEscape).join(",")).join("\r\n")}`;
+  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url; anchor.download = filename; anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = "", quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted && char === '"' && text[index + 1] === '"') { cell += '"'; index += 1; }
+    else if (char === '"') quoted = !quoted;
+    else if (char === "," && !quoted) { row.push(cell); cell = ""; }
+    else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && text[index + 1] === "\n") index += 1;
+      row.push(cell); if (row.some((value) => value.trim())) rows.push(row); row = []; cell = "";
+    } else cell += char;
+  }
+  row.push(cell); if (row.some((value) => value.trim())) rows.push(row);
+  return rows;
+}
+
+function csvToPayloads(text, groups) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) throw new Error("CSV 文件中没有数据");
+  const headers = rows[0].map((item) => item.replace(/^\uFEFF/, "").trim());
+  const missing = CSV_HEADERS.slice(0, 11).filter((header) => !headers.includes(header));
+  if (missing.length) throw new Error(`缺少字段：${missing.join("、")}`);
+  const groupByReference = new Map(groups.map((group) => [group.reference.toUpperCase(), group]));
+  const payloadBySku = new Map();
+  rows.slice(1).forEach((values) => {
+    const record = Object.fromEntries(headers.map((header, index) => [header, String(values[index] || "").trim()]));
+    const skuId = record.SKU编码.toUpperCase();
+    if (!skuId) return;
+    let payload = payloadBySku.get(skuId);
+    if (!payload) {
+      const existingGroup = groupByReference.get(record.商品组参考编码.toUpperCase());
+      payload = {
+        group: existingGroup ? { id: existingGroup.id } : { name: record.商品名称, reference: record.商品组参考编码, category: record.配件品类, image: "brake-pads.png" },
+        sku: {
+          id: skuId, brand: record.品牌, partNo: record.品牌件号, unit: record.基础单位,
+          packQuantity: Number(record.包装数量), price: Number(record.销售价),
+          status: ({ 草稿: "draft", 启用: "enabled", 停用: "disabled" })[record.资料状态] || record.资料状态 || "draft",
+          note: record.内部备注,
+        },
+        oeNumbers: [], fitments: [],
+      };
+      payloadBySku.set(skuId, payload);
+    }
+    payload.oeNumbers.push(...record.OE号.split(/[|/；;]+/).map((item) => item.trim()).filter(Boolean));
+    if (record.车型品牌 || record.车系) payload.fitments.push({
+      make: record.车型品牌, series: record.车系, yearFrom: record.起始年款, yearTo: record.结束年款,
+      variant: record.车型版本, engine: record.发动机配置, position: record.安装位置, source: record.资料来源,
+      verificationStatus: ({ 待核实: "pending", 已核实: "verified", 不适配: "rejected" })[record.核实状态] || record.核实状态 || "pending",
+    });
+  });
+  return [...payloadBySku.values()];
+}
+
+function exportRows(items) {
+  const dataRows = items.flatMap((item) => {
+    const fitments = item.fitments.length ? item.fitments : [{}];
+    return fitments.map((fitment, index) => [
+      item.groupReference, item.groupName, item.category, item.id, item.brand, item.partNo, item.unit,
+      item.packQuantity, item.price, STATUS_LABELS[item.status] || item.status, index === 0 ? item.oeNumbers.join("|") : "",
+      fitment.make, fitment.series, fitment.yearFrom, fitment.yearTo, fitment.variant, fitment.engine, fitment.position,
+      fitment.source, VERIFY_LABELS[fitment.verificationStatus] || fitment.verificationStatus, item.note,
+    ]);
+  });
+  return [CSV_HEADERS, ...dataRows];
 }
 
 function Checkbox({ checked, indeterminate = false, onChange, label }) {
@@ -158,8 +239,42 @@ function BatchModal({ items, onClose, onConfirm }) {
   return <div className="overlay modal-overlay"><div className="batch-modal" role="dialog" aria-modal="true"><header><div><h2>批量设置资料状态</h2><p>{items.length} 个 SKU，来自 {groupCount} 个商品组</p></div><IconButton label="关闭" onClick={onClose}><X /></IconButton></header><label>目标状态<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="enabled">启用</option><option value="disabled">停用</option><option value="draft">转为草稿</option></select></label><label>变更原因<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={200} /><span className="char-count">{reason.length}/200</span></label><div className="batch-list">{items.map(({ sku, group }) => <div key={sku.id}><ProductImage group={group} small /><span><strong>{sku.id}</strong><small>{group.name} · 当前{STATUS_LABELS[sku.status]}</small></span></div>)}</div><footer><button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="button" disabled={!reason.trim() || saving} onClick={async () => { setSaving(true); await onConfirm(status, reason); setSaving(false); }}>{saving ? "处理中..." : "确认修改"}</button></footer></div></div>;
 }
 
-function BottomBar({ selectedItems, page, totalPages, pageSize, onPage, onBatch, onClear }) {
-  return <footer className="bottom-bar"><div className="selection-summary">{selectedItems.length ? `已选 ${selectedItems.length} 个 SKU` : "未选择 SKU"}</div><div className="bottom-actions"><button className="secondary-button" type="button" onClick={onBatch} disabled={!selectedItems.length}>设置状态</button><button className="secondary-button" type="button" onClick={onClear} disabled={!selectedItems.length}>清除选择</button></div><div className="pagination"><span>每页 {pageSize} 组</span><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}><CaretLeft /></button><strong>{page} / {totalPages}</strong><button type="button" disabled={page >= totalPages} onClick={() => onPage(page + 1)}><CaretRight /></button></div></footer>;
+function ImportModal({ groups, onClose, onImported }) {
+  const [fileName, setFileName] = useState("");
+  const [rows, setRows] = useState([]);
+  const [mode, setMode] = useState("upsert");
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const previewFile = async (file) => {
+    setFileName(file?.name || ""); setPreview(null); setError("");
+    if (!file) return;
+    try {
+      const payloads = csvToPayloads(await file.text(), groups);
+      setRows(payloads);
+      setPreview(await api("/import/preview", { method: "POST", body: JSON.stringify({ rows: payloads, mode }) }));
+    } catch (loadError) { setRows([]); setError(loadError.message); }
+  };
+  const refreshPreview = async (nextMode) => {
+    setMode(nextMode); setError("");
+    if (!rows.length) return;
+    try { setPreview(await api("/import/preview", { method: "POST", body: JSON.stringify({ rows, mode: nextMode }) })); }
+    catch (previewError) { setError(previewError.message); }
+  };
+  const template = [CSV_HEADERS, ["DEMO-AF01", "空气滤清器", "滤清器", "DEMO-AF01-001", "MANN", "C 27009", "个", "1", "89", "草稿", "17801-0T020", "丰田", "卡罗拉", "2019", "2023", "", "2ZR", "发动机", "供应商目录", "待核实", ""]];
+  return <div className="overlay modal-overlay"><div className="batch-modal import-modal" role="dialog" aria-modal="true" aria-label="批量导入 SKU"><header><div><h2>批量导入 SKU</h2><p>先预览校验，整批无错误后才能写入</p></div><IconButton label="关闭" onClick={onClose}><X /></IconButton></header>
+    <div className="import-toolbar"><button className="secondary-button" type="button" onClick={() => downloadCsv("SKU导入模板.csv", template)}><DownloadSimple /> 下载模板</button><label className="primary-button file-button"><UploadSimple /> 选择 CSV<input type="file" accept=".csv,text/csv" onChange={(event) => previewFile(event.target.files?.[0])} /></label></div>
+    {fileName && <p className="selected-file"><FileText />{fileName}</p>}
+    <label>导入方式<select value={mode} onChange={(event) => refreshPreview(event.target.value)}><option value="upsert">新增并更新已有 SKU</option><option value="insert">只新增，重复 SKU 报错</option></select></label>
+    {error && <div className="form-error"><Prohibit weight="fill" />{error}</div>}
+    {preview && <div className="import-preview"><div><strong>{preview.total}</strong><span>SKU 总数</span></div><div><strong>{preview.valid}</strong><span>校验通过</span></div><div className={preview.errors.length ? "has-error" : ""}><strong>{preview.errors.length}</strong><span>错误</span></div></div>}
+    {preview?.errors?.length > 0 && <div className="import-errors">{preview.errors.slice(0, 20).map((item) => <div key={`${item.row}-${item.id}`}><b>第 {item.row} 行 {item.id}</b><span>{item.message} · {Object.values(item.details).join("、")}</span></div>)}</div>}
+    <footer><button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="button" disabled={!preview || preview.errors.length > 0 || saving} onClick={async () => { setSaving(true); setError(""); try { const result = await api("/import", { method: "POST", body: JSON.stringify({ rows, mode }) }); onImported(result); } catch (saveError) { setError(saveError.message); setSaving(false); } }}>{saving ? "导入中..." : `确认导入 ${preview?.valid || 0} 个 SKU`}</button></footer>
+  </div></div>;
+}
+
+function BottomBar({ selectedItems, page, totalPages, pageSize, onPage, onBatch, onClear, onExport }) {
+  return <footer className="bottom-bar"><div className="selection-summary">{selectedItems.length ? `已选 ${selectedItems.length} 个 SKU` : "未选择 SKU"}</div><div className="bottom-actions"><button className="secondary-button" type="button" onClick={onExport}><DownloadSimple />{selectedItems.length ? "导出所选" : "导出全部"}</button><button className="secondary-button" type="button" onClick={onBatch} disabled={!selectedItems.length}>设置状态</button><button className="secondary-button" type="button" onClick={onClear} disabled={!selectedItems.length}>清除选择</button></div><div className="pagination"><span>每页 {pageSize} 组</span><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}><CaretLeft /></button><strong>{page} / {totalPages}</strong><button type="button" disabled={page >= totalPages} onClick={() => onPage(page + 1)}><CaretRight /></button></div></footer>;
 }
 
 export function App() {
@@ -176,6 +291,7 @@ export function App() {
   const [detail, setDetail] = useState(null);
   const [edit, setEdit] = useState(null);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [toast, setToast] = useState("");
   const requestId = useRef(0);
 
@@ -206,10 +322,11 @@ export function App() {
     ["disabled", `已停用 (${catalog.counts.disabled})`],
   ];
 
-  return <div className="app-shell"><AppHeader /><main className="workspace"><div className="page-title-row"><div><h1>SKU商品库</h1><nav className="status-tabs" role="tablist">{tabs.map(([value, label]) => <button role="tab" aria-selected={status === value} className={status === value ? "is-active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}</button>)}</nav></div><div className="page-actions"><button className="primary-button" type="button" onClick={() => setEdit({})}><Plus /> 新增SKU</button><IconButton label="刷新商品" onClick={() => load({ quiet: true })}><ArrowClockwise /></IconButton></div></div><FilterBar search={search} setSearch={setSearch} category={category} setCategory={setCategory} categories={catalog.categories} /><div className="content-area">{loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => load()} /> : catalog.groups.length ? <ProductTable groups={catalog.groups} expanded={expanded} setExpanded={setExpanded} selected={selected} setSelected={setSelected} onDetail={(sku, group) => setDetail({ sku, group })} onEdit={(sku, group) => setEdit({ sku, group })} /> : <EmptyState onClear={() => { setSearch(""); setCategory(""); setStatus(""); }} />}</div></main><BottomBar selectedItems={selectedItems} page={catalog.pagination.page} totalPages={catalog.pagination.totalPages} pageSize={catalog.pagination.pageSize} onPage={setPage} onBatch={() => setBatchOpen(true)} onClear={() => setSelected(new Set())} />
+  return <div className="app-shell"><AppHeader /><main className="workspace"><div className="page-title-row"><div><h1>SKU商品库</h1><nav className="status-tabs" role="tablist">{tabs.map(([value, label]) => <button role="tab" aria-selected={status === value} className={status === value ? "is-active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}</button>)}</nav></div><div className="page-actions"><button className="secondary-button" type="button" onClick={() => setImportOpen(true)}><UploadSimple /> 批量导入</button><button className="primary-button" type="button" onClick={() => setEdit({})}><Plus /> 新增SKU</button><IconButton label="刷新商品" onClick={() => load({ quiet: true })}><ArrowClockwise /></IconButton></div></div><FilterBar search={search} setSearch={setSearch} category={category} setCategory={setCategory} categories={catalog.categories} /><div className="content-area">{loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => load()} /> : catalog.groups.length ? <ProductTable groups={catalog.groups} expanded={expanded} setExpanded={setExpanded} selected={selected} setSelected={setSelected} onDetail={(sku, group) => setDetail({ sku, group })} onEdit={(sku, group) => setEdit({ sku, group })} /> : <EmptyState onClear={() => { setSearch(""); setCategory(""); setStatus(""); }} />}</div></main><BottomBar selectedItems={selectedItems} page={catalog.pagination.page} totalPages={catalog.pagination.totalPages} pageSize={catalog.pagination.pageSize} onPage={setPage} onBatch={() => setBatchOpen(true)} onClear={() => setSelected(new Set())} onExport={async () => { try { const data = await api("/export"); const ids = new Set(selectedItems.map(({ sku }) => sku.id)); const items = ids.size ? data.items.filter((item) => ids.has(item.id)) : data.items; downloadCsv(`SKU资料-${new Date().toISOString().slice(0, 10)}.csv`, exportRows(items)); setToast(`已导出 ${items.length} 个 SKU`); } catch (exportError) { setToast(exportError.message); } }} />
     {detail && <DetailDrawer selected={detail} onClose={() => setDetail(null)} onEdit={() => { setEdit(detail); setDetail(null); }} />}
     {edit && <EditDrawer selected={edit} groups={groups} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); setToast(edit.sku ? "SKU 资料已更新" : "SKU 已创建"); load({ quiet: true }); }} onDeleted={() => { setEdit(null); setToast("草稿 SKU 已删除"); load({ quiet: true }); }} />}
     {batchOpen && <BatchModal items={selectedItems} onClose={() => setBatchOpen(false)} onConfirm={async (nextStatus, reason) => { await Promise.all(selectedItems.map(({ sku }) => api(`/skus/${encodeURIComponent(sku.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: nextStatus, reason }) }))); setBatchOpen(false); setSelected(new Set()); setToast(`已更新 ${selectedItems.length} 个 SKU`); load({ quiet: true }); }} />}
+    {importOpen && <ImportModal groups={groups} onClose={() => setImportOpen(false)} onImported={(result) => { setImportOpen(false); setToast(`已导入 ${result.valid} 个 SKU`); load({ quiet: true }); }} />}
     {toast && <div className="toast" role="status"><CheckCircle weight="fill" /><span><strong>操作成功</strong><small>{toast}</small></span><button type="button" aria-label="关闭提示" onClick={() => setToast("")}><X /></button></div>}
   </div>;
 }

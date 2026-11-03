@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { createSku, deleteDraft, listActivity, listCatalog, listGroups, openDatabase, readSku, updateSku, updateStatus } from "./db.mjs";
+import { createSku, deleteDraft, exportSkuRows, importSkuRows, listActivity, listCatalog, listGroups, openDatabase, readSku, updateSku, updateStatus } from "./db.mjs";
 
 const json = (res, status, body) => {
   const data = JSON.stringify(body);
@@ -52,6 +52,18 @@ export function createApp({ db = openDatabase() } = {}) {
       }
       if (req.method === "GET" && pathname === "/api/groups") {
         return json(res, 200, { items: listGroups(db) });
+      }
+      if (req.method === "GET" && pathname === "/api/export") {
+        return json(res, 200, { items: exportSkuRows(db) });
+      }
+      if (req.method === "POST" && pathname === "/api/import/preview") {
+        const body = await readJson(req);
+        return json(res, 200, importSkuRows(db, body.rows, { mode: body.mode, preview: true }));
+      }
+      if (req.method === "POST" && pathname === "/api/import") {
+        const body = await readJson(req);
+        const result = importSkuRows(db, body.rows, { mode: body.mode, preview: false });
+        return json(res, result.errors.length ? 422 : 200, result);
       }
       const skuMatch = pathname.match(/^\/api\/skus\/([^/]+)$/);
       const statusMatch = pathname.match(/^\/api\/skus\/([^/]+)\/status$/);

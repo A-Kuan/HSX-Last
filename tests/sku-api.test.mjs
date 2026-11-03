@@ -108,3 +108,41 @@ test("only draft SKUs can be deleted", async () => {
     assert.equal((await request(base, "/api/skus/DRAFT-001")).response.status, 404);
   });
 });
+
+test("CSV-shaped import previews atomically and export returns SKU data", async () => {
+  await withApi(async (base) => {
+    const firstRow = {
+      group: { name: "空气滤清器", reference: "DEMO-AF01", category: "滤清器", image: "brake-pads.png" },
+      sku: { id: "IMPORT-001", brand: "MANN", partNo: "C 27009 IMPORT", unit: "个", packQuantity: 1, price: 89, status: "draft", note: "批量导入" },
+      oeNumbers: ["17801-0T020"],
+      fitments: [{ make: "丰田", series: "卡罗拉", yearFrom: 2019, yearTo: 2023, verificationStatus: "pending" }],
+    };
+    const rows = [firstRow, {
+      ...firstRow,
+      sku: { ...firstRow.sku, id: "IMPORT-002", partNo: "C 27009 IMPORT 2" },
+      oeNumbers: ["17801-0T030"],
+    }];
+    const preview = await request(base, "/api/import/preview", { method: "POST", body: JSON.stringify({ rows, mode: "upsert" }) });
+    assert.equal(preview.response.status, 200);
+    assert.equal(preview.body.valid, 2);
+    assert.equal(preview.body.committed, false);
+    assert.equal((await request(base, "/api/skus/IMPORT-001")).response.status, 404);
+
+    const imported = await request(base, "/api/import", { method: "POST", body: JSON.stringify({ rows, mode: "upsert" }) });
+    assert.equal(imported.response.status, 200);
+    assert.equal(imported.body.committed, true);
+    assert.equal((await request(base, "/api/skus/IMPORT-001")).response.status, 200);
+    assert.equal((await request(base, "/api/skus/IMPORT-002")).response.status, 200);
+
+    const exported = await request(base, "/api/export");
+    assert.equal(exported.response.status, 200);
+    assert.equal(exported.body.items.some((item) => item.id === "IMPORT-001" && item.oeNumbers[0] === "17801-0T020"), true);
+
+    const invalidRows = [{ ...firstRow, sku: { ...firstRow.sku, id: "IMPORT-003", partNo: "C 27009 IMPORT 3" } }, { ...firstRow, sku: { ...firstRow.sku, id: "IMPORT-004", partNo: "" } }];
+    const rejected = await request(base, "/api/import", { method: "POST", body: JSON.stringify({ rows: invalidRows, mode: "insert" }) });
+    assert.equal(rejected.response.status, 422);
+    assert.equal(rejected.body.committed, false);
+    assert.equal((await request(base, "/api/skus/IMPORT-003")).response.status, 404);
+    assert.equal((await request(base, "/api/skus/IMPORT-004")).response.status, 404);
+  });
+});

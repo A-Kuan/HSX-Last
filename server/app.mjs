@@ -1,5 +1,9 @@
 import { createServer } from "node:http";
-import { createSku, deleteDraft, exportSkuRows, importSkuRows, listActivity, listCatalog, listGroups, openDatabase, readSku, updateSku, updateStatus } from "./db.mjs";
+import {
+  addSkuRelation, createSku, createVehicle, deleteDraft, deleteSkuRelation, deleteVehicle, exportSkuRows, importSkuRows,
+  listActivity, listBrands, listCatalog, listGroups, listPartTypes, listSkuRelations, listVehicles, lookupVehicleParts, openDatabase, readSku,
+  readVehicle, updateGroup, updateSku, updateStatus, updateVehicle,
+} from "./db.mjs";
 
 const json = (res, status, body) => {
   const data = JSON.stringify(body);
@@ -53,6 +57,37 @@ export function createApp({ db = openDatabase() } = {}) {
       if (req.method === "GET" && pathname === "/api/groups") {
         return json(res, 200, { items: listGroups(db) });
       }
+      if (req.method === "GET" && pathname === "/api/brands") {
+        return json(res, 200, { items: listBrands(db) });
+      }
+      const groupMatch = pathname.match(/^\/api\/groups\/([^/]+)$/);
+      if (req.method === "PUT" && groupMatch) {
+        return json(res, 200, updateGroup(db, decodeURIComponent(groupMatch[1]), await readJson(req)));
+      }
+      if (req.method === "GET" && pathname === "/api/vehicles") {
+        return json(res, 200, { items: listVehicles(db) });
+      }
+      if (req.method === "GET" && pathname === "/api/part-types") {
+        return json(res, 200, listPartTypes(db));
+      }
+      if (req.method === "POST" && pathname === "/api/vehicles") {
+        return json(res, 201, createVehicle(db, await readJson(req)));
+      }
+      const vehicleMatch = pathname.match(/^\/api\/vehicles\/([^/]+)$/);
+      if (req.method === "GET" && vehicleMatch) {
+        const vehicle = readVehicle(db, decodeURIComponent(vehicleMatch[1]));
+        return vehicle ? json(res, 200, vehicle) : json(res, 404, { error: "车型不存在" });
+      }
+      if (req.method === "PUT" && vehicleMatch) {
+        return json(res, 200, updateVehicle(db, decodeURIComponent(vehicleMatch[1]), await readJson(req)));
+      }
+      if (req.method === "DELETE" && vehicleMatch) {
+        deleteVehicle(db, decodeURIComponent(vehicleMatch[1]));
+        return noContent(res);
+      }
+      if (req.method === "GET" && pathname === "/api/vehicle-lookup") {
+        return json(res, 200, lookupVehicleParts(db, requestUrl.searchParams.get("q") || ""));
+      }
       if (req.method === "GET" && pathname === "/api/export") {
         return json(res, 200, { items: exportSkuRows(db) });
       }
@@ -68,6 +103,18 @@ export function createApp({ db = openDatabase() } = {}) {
       const skuMatch = pathname.match(/^\/api\/skus\/([^/]+)$/);
       const statusMatch = pathname.match(/^\/api\/skus\/([^/]+)\/status$/);
       const activityMatch = pathname.match(/^\/api\/skus\/([^/]+)\/activity$/);
+      const relationsMatch = pathname.match(/^\/api\/skus\/([^/]+)\/relations$/);
+      const relationMatch = pathname.match(/^\/api\/relations\/(\d+)$/);
+      if (req.method === "GET" && relationsMatch) {
+        return json(res, 200, listSkuRelations(db, decodeURIComponent(relationsMatch[1])));
+      }
+      if (req.method === "POST" && relationsMatch) {
+        return json(res, 201, addSkuRelation(db, decodeURIComponent(relationsMatch[1]), await readJson(req)));
+      }
+      if (req.method === "DELETE" && relationMatch) {
+        deleteSkuRelation(db, relationMatch[1]);
+        return noContent(res);
+      }
       if (req.method === "GET" && skuMatch) {
         const sku = readSku(db, decodeURIComponent(skuMatch[1]));
         return sku ? json(res, 200, sku) : json(res, 404, { error: "SKU 不存在" });

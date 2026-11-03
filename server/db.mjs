@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 const now = () => new Date().toISOString();
 const normalizeCode = (value = "") => value.trim().toUpperCase();
 export const normalizeOe = (value = "") => normalizeCode(value).replace(/[^A-Z0-9]/g, "");
+const normalizeText = (value = "") => String(value).toLowerCase().replace(/[\s\-_/.·,，。()（）+]+/g, "");
 
 const seedGroups = [
   { id: "brake", name: "前制动片套装", reference: "DEMO-BP01", image: "brake-pads.png", note: "前轴制动片，按品牌与材质区分", category: "制动片" },
@@ -86,7 +87,170 @@ function migrate(db) {
       after_json TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS part_types (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      system TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS part_sets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS part_set_items (
+      set_id TEXT NOT NULL REFERENCES part_sets(id) ON DELETE CASCADE,
+      part_type_id TEXT NOT NULL REFERENCES part_types(id) ON DELETE CASCADE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (set_id, part_type_id)
+    );
+    CREATE TABLE IF NOT EXISTS vehicles (
+      id TEXT PRIMARY KEY,
+      brand TEXT NOT NULL,
+      series TEXT NOT NULL,
+      generation TEXT NOT NULL DEFAULT '',
+      platform TEXT NOT NULL DEFAULT '',
+      year_from INTEGER,
+      year_to INTEGER,
+      engine TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      drive TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS vehicle_aliases (
+      vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      alias TEXT NOT NULL,
+      normalized TEXT NOT NULL,
+      PRIMARY KEY (vehicle_id, normalized)
+    );
+    CREATE INDEX IF NOT EXISTS idx_vehicle_aliases_normalized ON vehicle_aliases(normalized);
+    CREATE TABLE IF NOT EXISTS vehicle_products (
+      vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      group_id TEXT NOT NULL REFERENCES product_groups(id) ON DELETE CASCADE,
+      part_type_id TEXT NOT NULL REFERENCES part_types(id),
+      position TEXT NOT NULL DEFAULT '',
+      verification_status TEXT NOT NULL DEFAULT 'pending' CHECK (verification_status IN ('pending', 'verified', 'rejected')),
+      source TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (vehicle_id, group_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_vehicle_products_group ON vehicle_products(group_id);
+    CREATE TABLE IF NOT EXISTS sku_relations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_sku_id TEXT NOT NULL REFERENCES skus(id) ON DELETE CASCADE,
+      to_sku_id TEXT NOT NULL REFERENCES skus(id) ON DELETE CASCADE,
+      relation_type TEXT NOT NULL CHECK (relation_type IN ('interchange', 'supersedes')),
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      CHECK (from_sku_id <> to_sku_id),
+      UNIQUE (from_sku_id, to_sku_id, relation_type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sku_relations_from ON sku_relations(from_sku_id);
+    CREATE INDEX IF NOT EXISTS idx_sku_relations_to ON sku_relations(to_sku_id);
   `);
+}
+
+const seedPartTypes = [
+  ["oil-filter", "机油滤清器", "保养件", 1],
+  ["air-filter", "空气滤清器", "保养件", 2],
+  ["cabin-filter", "空调滤清器", "保养件", 3],
+  ["fuel-filter", "燃油滤清器", "保养件", 4],
+];
+
+const seedPartSets = [
+  ["sanlv", "三滤", "机油滤清器、空气滤清器、空调滤清器", [["oil-filter", 1], ["air-filter", 2], ["cabin-filter", 3]]],
+  ["silv", "四滤", "三滤再加燃油滤清器", [["oil-filter", 1], ["air-filter", 2], ["cabin-filter", 3], ["fuel-filter", 4]]],
+];
+
+const seedVehicleGroups = [
+  { id: "of-ea839", name: "机油滤清器（纸芯）", reference: "DEMO-FL01", image: "oil-filter.png", category: "滤清器", note: "纸芯式，适配 EA839 3.0T" },
+  { id: "af-ea839", name: "空气滤清器（方型）", reference: "DEMO-FL02", image: "oil-filter.png", category: "滤清器", note: "方型滤芯" },
+  { id: "cf-ea839", name: "空调滤清器（活性炭）", reference: "DEMO-FL03", image: "oil-filter.png", category: "滤清器", note: "带活性炭层" },
+];
+
+const seedVehicleSkus = [
+  ["DEMO-FL01-001", "of-ea839", "MANN", "HU 7029 Z", "个", 1, 96, "enabled", "059 115 562"],
+  ["DEMO-FL01-002", "of-ea839", "MAHLE", "OX 1044D", "个", 1, 88, "enabled", "059 115 562"],
+  ["DEMO-FL01-003", "of-ea839", "BOSCH", "F 026 407 024", "个", 1, 82, "enabled", "059 115 562"],
+  ["DEMO-FL02-001", "af-ea839", "MANN", "C 30015", "个", 1, 168, "enabled", "9Y0 129 620"],
+  ["DEMO-FL02-002", "af-ea839", "MAHLE", "LX 2734", "个", 1, 152, "enabled", "9Y0 129 620"],
+  ["DEMO-FL02-003", "af-ea839", "BOSCH", "F 026 400 495", "个", 1, 145, "enabled", "9Y0 129 620"],
+  ["DEMO-FL03-001", "cf-ea839", "MANN", "CU 26017", "个", 1, 118, "enabled", "9Y0 819 439"],
+  ["DEMO-FL03-002", "cf-ea839", "MAHLE", "LAK 445", "个", 1, 132, "enabled", "9Y0 819 439"],
+  ["DEMO-FL03-003", "cf-ea839", "BOSCH", "R 2405", "个", 1, 109, "disabled", "9Y0 819 439"],
+];
+
+const seedVehicles = [
+  {
+    id: "veh-cayenne-e3", brand: "保时捷", series: "Cayenne", generation: "E3", platform: "9YA",
+    yearFrom: 2018, yearTo: 2023, engine: "3.0T / 2.9T", body: "SUV", drive: "四驱",
+    aliases: ["卡宴", "凯宴", "Cayenne", "卡宴E3", "E3", "9YA", "保时捷卡宴", "卡宴9YA"],
+  },
+  {
+    id: "veh-touareg-cr7", brand: "大众", series: "途锐", generation: "CR7", platform: "CR",
+    yearFrom: 2018, yearTo: 2023, engine: "3.0T", body: "SUV", drive: "四驱",
+    aliases: ["途锐", "Touareg", "途锐CR7", "CR7", "途锐3.0T"],
+  },
+];
+
+const vehicleProductLinks = [
+  ["veh-cayenne-e3", "of-ea839", "oil-filter"],
+  ["veh-cayenne-e3", "af-ea839", "air-filter"],
+  ["veh-cayenne-e3", "cf-ea839", "cabin-filter"],
+  ["veh-touareg-cr7", "of-ea839", "oil-filter"],
+  ["veh-touareg-cr7", "af-ea839", "air-filter"],
+  ["veh-touareg-cr7", "cf-ea839", "cabin-filter"],
+];
+
+function ensureReferenceData(db) {
+  const insertPartType = db.prepare("INSERT OR IGNORE INTO part_types (id, name, system, sort_order) VALUES (?, ?, ?, ?)");
+  for (const [id, name, system, sortOrder] of seedPartTypes) insertPartType.run(id, name, system, sortOrder);
+  const insertSet = db.prepare("INSERT OR IGNORE INTO part_sets (id, name, note) VALUES (?, ?, ?)");
+  const insertSetItem = db.prepare("INSERT OR IGNORE INTO part_set_items (set_id, part_type_id, sort_order) VALUES (?, ?, ?)");
+  for (const [id, name, note, items] of seedPartSets) {
+    insertSet.run(id, name, note);
+    for (const [partTypeId, sortOrder] of items) insertSetItem.run(id, partTypeId, sortOrder);
+  }
+}
+
+function seedVehicleCatalog(db) {
+  const { count } = db.prepare("SELECT COUNT(*) AS count FROM vehicles").get();
+  if (count) return;
+  const timestamp = now();
+  db.exec("BEGIN");
+  try {
+    const insertGroup = db.prepare(`INSERT OR IGNORE INTO product_groups
+      (id, name, reference, image, note, category, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const group of seedVehicleGroups) {
+      insertGroup.run(group.id, group.name, group.reference, group.image, group.note, group.category, timestamp, timestamp);
+    }
+    const insertSku = db.prepare(`INSERT OR IGNORE INTO skus
+      (id, group_id, brand, part_no, unit, pack_quantity, price, status, note, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)`);
+    const insertOe = db.prepare("INSERT OR IGNORE INTO sku_oe_numbers (sku_id, oe_no, normalized_oe, is_primary) VALUES (?, ?, ?, 1)");
+    for (const [id, groupId, brand, partNo, unit, packQuantity, price, status, oe] of seedVehicleSkus) {
+      insertSku.run(id, groupId, brand, partNo, unit, packQuantity, price, status, timestamp, timestamp);
+      insertOe.run(id, oe, normalizeOe(oe));
+    }
+    const insertVehicle = db.prepare(`INSERT OR IGNORE INTO vehicles
+      (id, brand, series, generation, platform, year_from, year_to, engine, body, drive, note, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)`);
+    const insertAlias = db.prepare("INSERT OR IGNORE INTO vehicle_aliases (vehicle_id, alias, normalized) VALUES (?, ?, ?)");
+    for (const vehicle of seedVehicles) {
+      insertVehicle.run(vehicle.id, vehicle.brand, vehicle.series, vehicle.generation, vehicle.platform,
+        vehicle.yearFrom, vehicle.yearTo, vehicle.engine, vehicle.body, vehicle.drive, timestamp, timestamp);
+      for (const alias of vehicle.aliases) insertAlias.run(vehicle.id, alias, normalizeText(alias));
+    }
+    const insertLink = db.prepare(`INSERT OR IGNORE INTO vehicle_products
+      (vehicle_id, group_id, part_type_id, source, verification_status, note) VALUES (?, ?, ?, '演示数据', 'pending', '')`);
+    for (const [vehicleId, groupId, partTypeId] of vehicleProductLinks) insertLink.run(vehicleId, groupId, partTypeId);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 function seed(db) {
@@ -120,8 +284,15 @@ export function openDatabase(file = process.env.SKU_DB_PATH || resolve("data/sku
   if (file !== ":memory:") mkdirSync(dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   migrate(db);
-  seed(db);
+  ensureReferenceData(db);
   return db;
+}
+
+/** Demo fixtures for tests and local walkthroughs. Never called by openDatabase. */
+export function seedDemoData(db) {
+  ensureReferenceData(db);
+  seed(db);
+  seedVehicleCatalog(db);
 }
 
 export function readSku(db, skuId) {
@@ -163,6 +334,43 @@ export function listActivity(db, skuId) {
 export function listGroups(db) {
   return db.prepare(`SELECT id, name, reference, image, note, category
     FROM product_groups ORDER BY name COLLATE NOCASE`).all();
+}
+
+export function listBrands(db) {
+  return db.prepare("SELECT DISTINCT brand FROM skus WHERE TRIM(brand) <> '' ORDER BY brand COLLATE NOCASE").all()
+    .map((row) => row.brand);
+}
+
+export function updateGroup(db, groupId, payload = {}) {
+  const existing = db.prepare("SELECT * FROM product_groups WHERE id = ?").get(groupId);
+  if (!existing) {
+    const error = new Error("商品组不存在");
+    error.status = 404;
+    throw error;
+  }
+  const name = String(payload.name ?? existing.name).trim();
+  const reference = normalizeCode(payload.reference ?? existing.reference);
+  const category = String(payload.category ?? existing.category).trim();
+  const details = {};
+  if (!name) details.name = "请填写商品名称";
+  if (!reference) details.reference = "请填写参考编码";
+  if (!category) details.category = "请填写配件品类";
+  if (Object.keys(details).length) {
+    const error = new Error("商品组资料不完整");
+    error.status = 422;
+    error.details = details;
+    throw error;
+  }
+  const clash = db.prepare("SELECT id FROM product_groups WHERE reference = ? AND id <> ?").get(reference, groupId);
+  if (clash) {
+    const error = new Error("参考编码已被其他商品组使用");
+    error.status = 409;
+    error.details = { groupReference: "参考编码已被其他商品组使用" };
+    throw error;
+  }
+  db.prepare("UPDATE product_groups SET name = ?, reference = ?, category = ?, updated_at = ? WHERE id = ?")
+    .run(name, reference, category, now(), groupId);
+  return db.prepare("SELECT id, name, reference, image, note, category FROM product_groups WHERE id = ?").get(groupId);
 }
 
 export function exportSkuRows(db) {
@@ -234,20 +442,27 @@ export function listCatalog(db, filters = {}) {
       const statusMatches = !status || (status === "incomplete" ? incomplete : sku.status === status);
       return statusMatches && (groupMatches || sku.matchesSearch);
     });
-    return skus.length ? [{ group, skus }] : [];
+    return skus.length ? [{
+      group,
+      skus,
+      totalSkuCount: allSkus.length,
+      enabledSkuCount: allSkus.filter((sku) => sku.status === "enabled").length,
+    }] : [];
   });
 
   const totalGroups = matchingGroups.length;
   const pageGroups = matchingGroups.slice((page - 1) * pageSize, page * pageSize);
   const fitmentStmt = db.prepare(`SELECT make, series, year_from AS yearFrom, year_to AS yearTo, variant, engine, position,
     source, verification_status AS verificationStatus, note FROM sku_fitments WHERE sku_id = ? ORDER BY id`);
-  const groups = pageGroups.map(({ group, skus }) => ({
+  const groups = pageGroups.map(({ group, skus, totalSkuCount, enabledSkuCount }) => ({
     id: group.id,
     name: group.name,
     reference: group.reference,
     image: group.image,
     note: group.note,
     category: group.category,
+    totalSkuCount,
+    enabledSkuCount,
     skus: skus.map((sku) => ({
       id: sku.id,
       brand: sku.brand,
@@ -521,4 +736,441 @@ export function deleteDraft(db, skuId) {
   db.prepare("DELETE FROM skus WHERE id = ?").run(skuId);
   logActivity(db, { skuId, action: "delete", summary: "删除草稿 SKU", before: existing });
   return true;
+}
+
+const setKeywords = { "三滤": "sanlv", "四滤": "silv" };
+const partTypeKeywords = [
+  ["空调滤", "cabin-filter"],
+  ["空气滤", "air-filter"],
+  ["空滤", "air-filter"],
+  ["燃油滤", "fuel-filter"],
+  ["汽滤", "fuel-filter"],
+  ["机油滤", "oil-filter"],
+  ["机滤", "oil-filter"],
+];
+
+function readPartTypes(db, ids) {
+  const statement = db.prepare("SELECT id, name FROM part_types WHERE id = ?");
+  return ids.map((id) => statement.get(id)).filter(Boolean);
+}
+
+function detectPartScope(db, query) {
+  const text = normalizeText(query);
+  for (const [keyword, setId] of Object.entries(setKeywords)) {
+    if (!text.includes(keyword)) continue;
+    const set = db.prepare("SELECT id, name, note FROM part_sets WHERE id = ?").get(setId);
+    if (!set) continue;
+    const ids = db.prepare("SELECT part_type_id FROM part_set_items WHERE set_id = ? ORDER BY sort_order").all(setId).map((row) => row.part_type_id);
+    return { set, partTypes: readPartTypes(db, ids), remainder: text.replace(keyword, "") };
+  }
+  for (const [keyword, partTypeId] of partTypeKeywords) {
+    if (!text.includes(keyword)) continue;
+    return { set: null, partTypes: readPartTypes(db, [partTypeId]), remainder: text.replace(keyword, "") };
+  }
+  const fallback = db.prepare("SELECT id, name, note FROM part_sets WHERE id = 'sanlv'").get();
+  const ids = fallback
+    ? db.prepare("SELECT part_type_id FROM part_set_items WHERE set_id = 'sanlv' ORDER BY sort_order").all().map((row) => row.part_type_id)
+    : [];
+  return { set: fallback || null, partTypes: readPartTypes(db, ids), remainder: text };
+}
+
+function scoreVehicle(vehicle, aliases, needle) {
+  if (!needle) return 0;
+  let best = 0;
+  for (const { normalized } of aliases) {
+    if (!normalized) continue;
+    if (normalized === needle) best = Math.max(best, 100);
+    else if (needle.includes(normalized)) best = Math.max(best, 80 + Math.min(normalized.length, 10));
+    else if (normalized.includes(needle) && needle.length >= 2) best = Math.max(best, 60 + Math.min(needle.length, 10));
+  }
+  const fields = [vehicle.brand, vehicle.series, vehicle.generation, vehicle.platform, `${vehicle.brand}${vehicle.series}`].map(normalizeText).filter(Boolean);
+  for (const field of fields) {
+    if (field === needle) best = Math.max(best, 95);
+    else if (needle.includes(field) || field.includes(needle)) best = Math.max(best, 55 + Math.min(field.length, 10));
+  }
+  return best;
+}
+
+const vehicleLabel = (vehicle) => [vehicle.brand, vehicle.series, vehicle.generation].filter(Boolean).join(" ");
+
+function presentVehicle(db, vehicle, score = null) {
+  return {
+    id: vehicle.id,
+    brand: vehicle.brand,
+    series: vehicle.series,
+    generation: vehicle.generation,
+    platform: vehicle.platform,
+    yearFrom: vehicle.year_from,
+    yearTo: vehicle.year_to,
+    engine: vehicle.engine,
+    body: vehicle.body,
+    drive: vehicle.drive,
+    label: vehicleLabel(vehicle),
+    aliases: db.prepare("SELECT alias FROM vehicle_aliases WHERE vehicle_id = ?").all(vehicle.id).map((row) => row.alias),
+    score,
+  };
+}
+
+function groupSkus(db, groupId) {
+  return db.prepare(`SELECT s.id, s.brand, s.part_no, s.unit, s.pack_quantity, s.price, s.status,
+      (SELECT GROUP_CONCAT(o.oe_no, '||') FROM sku_oe_numbers o WHERE o.sku_id = s.id) AS oe_numbers
+    FROM skus s WHERE s.group_id = ? ORDER BY s.brand COLLATE NOCASE, s.id`).all(groupId).map((sku) => ({
+    id: sku.id,
+    brand: sku.brand,
+    partNo: sku.part_no,
+    unit: sku.unit,
+    packQuantity: sku.pack_quantity,
+    price: sku.price,
+    status: sku.status,
+    oeNumbers: sku.oe_numbers ? sku.oe_numbers.split("||") : [],
+  }));
+}
+
+export function listVehicles(db) {
+  return db.prepare("SELECT * FROM vehicles ORDER BY brand COLLATE NOCASE, series COLLATE NOCASE").all().map((vehicle) => ({
+    ...presentVehicle(db, vehicle),
+    score: undefined,
+    productCount: db.prepare("SELECT COUNT(*) AS count FROM vehicle_products WHERE vehicle_id = ?").get(vehicle.id).count,
+  }));
+}
+
+export function listPartTypes(db) {
+  return {
+    items: db.prepare("SELECT id, name, system, sort_order FROM part_types ORDER BY sort_order, name").all()
+      .map((row) => ({ id: row.id, name: row.name, system: row.system, sortOrder: row.sort_order })),
+    sets: db.prepare("SELECT id, name, note FROM part_sets ORDER BY id").all().map((row) => ({
+      id: row.id,
+      name: row.name,
+      note: row.note,
+      partTypeIds: db.prepare("SELECT part_type_id FROM part_set_items WHERE set_id = ? ORDER BY sort_order").all(row.id).map((item) => item.part_type_id),
+    })),
+  };
+}
+
+function normalizeAliases(list) {
+  const seen = new Set();
+  const aliases = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const alias = String(raw || "").trim();
+    const normalized = normalizeText(alias);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    aliases.push(alias);
+    if (aliases.length >= 30) break;
+  }
+  return aliases;
+}
+
+function normalizeVehicleProducts(db, list) {
+  const rows = [];
+  const seen = new Set();
+  for (const item of Array.isArray(list) ? list : []) {
+    const groupId = String(item?.groupId || "").trim();
+    if (!groupId || seen.has(groupId)) continue;
+    if (!db.prepare("SELECT 1 FROM product_groups WHERE id = ?").get(groupId)) {
+      const error = new Error("商品组不存在");
+      error.status = 422;
+      error.details = { products: "适配的商品组已不存在，请刷新后重试" };
+      throw error;
+    }
+    const partTypeId = String(item?.partTypeId || "").trim();
+    if (!db.prepare("SELECT 1 FROM part_types WHERE id = ?").get(partTypeId)) {
+      const error = new Error("件类不存在");
+      error.status = 422;
+      error.details = { products: "请为适配件选择件类" };
+      throw error;
+    }
+    seen.add(groupId);
+    rows.push({
+      groupId,
+      partTypeId,
+      position: String(item?.position || "").trim(),
+      verificationStatus: ["pending", "verified", "rejected"].includes(item?.verificationStatus) ? item.verificationStatus : "pending",
+    });
+  }
+  return rows;
+}
+
+function normalizeVehicleInput(db, payload = {}) {
+  const brand = String(payload.brand || "").trim();
+  const series = String(payload.series || "").trim();
+  const details = {};
+  if (!brand) details.brand = "请填写品牌";
+  if (!series) details.series = "请填写车系";
+  const yearFrom = payload.yearFrom === "" || payload.yearFrom === undefined || payload.yearFrom === null ? null : Number(payload.yearFrom);
+  const yearTo = payload.yearTo === "" || payload.yearTo === undefined || payload.yearTo === null ? null : Number(payload.yearTo);
+  if (yearFrom !== null && !Number.isFinite(yearFrom)) details.yearFrom = "起始年款应为数字";
+  if (yearTo !== null && !Number.isFinite(yearTo)) details.yearTo = "结束年款应为数字";
+  if (yearFrom !== null && yearTo !== null && Number.isFinite(yearFrom) && Number.isFinite(yearTo) && yearFrom > yearTo) {
+    details.yearTo = "结束年款不能早于起始年款";
+  }
+  if (Object.keys(details).length) {
+    const error = new Error("车型资料不完整");
+    error.status = 422;
+    error.details = details;
+    throw error;
+  }
+  return {
+    brand,
+    series,
+    generation: String(payload.generation || "").trim(),
+    platform: String(payload.platform || "").trim(),
+    yearFrom,
+    yearTo,
+    engine: String(payload.engine || "").trim(),
+    body: String(payload.body || "").trim(),
+    drive: String(payload.drive || "").trim(),
+    note: String(payload.note || "").trim(),
+    aliases: normalizeAliases(payload.aliases),
+    products: normalizeVehicleProducts(db, payload.products),
+  };
+}
+
+function vehicleIdBase(input) {
+  const slug = normalizeText(`${input.series}${input.generation}`).replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  return slug ? `veh-${slug}` : `veh-${Date.now().toString(36)}`;
+}
+
+function uniqueVehicleId(db, base) {
+  let id = base;
+  let suffix = 2;
+  while (db.prepare("SELECT 1 FROM vehicles WHERE id = ?").get(id)) id = `${base}-${suffix++}`;
+  return id;
+}
+
+function replaceVehicleAliases(db, vehicleId, aliases) {
+  db.prepare("DELETE FROM vehicle_aliases WHERE vehicle_id = ?").run(vehicleId);
+  const insert = db.prepare("INSERT INTO vehicle_aliases (vehicle_id, alias, normalized) VALUES (?, ?, ?)");
+  for (const alias of aliases) insert.run(vehicleId, alias, normalizeText(alias));
+}
+
+function replaceVehicleProducts(db, vehicleId, products) {
+  db.prepare("DELETE FROM vehicle_products WHERE vehicle_id = ?").run(vehicleId);
+  const insert = db.prepare(`INSERT INTO vehicle_products
+    (vehicle_id, group_id, part_type_id, position, verification_status, source, note)
+    VALUES (?, ?, ?, ?, ?, '手工维护', '')`);
+  for (const product of products) insert.run(vehicleId, product.groupId, product.partTypeId, product.position, product.verificationStatus);
+}
+
+export function readVehicle(db, vehicleId) {
+  const vehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(vehicleId);
+  if (!vehicle) return null;
+  const products = db.prepare(`SELECT vp.group_id, vp.part_type_id, vp.position, vp.verification_status, g.name, g.reference
+    FROM vehicle_products vp JOIN product_groups g ON g.id = vp.group_id WHERE vp.vehicle_id = ? ORDER BY vp.part_type_id`)
+    .all(vehicleId)
+    .map((row) => ({
+      groupId: row.group_id,
+      partTypeId: row.part_type_id,
+      position: row.position,
+      verificationStatus: row.verification_status,
+      groupName: row.name,
+      groupReference: row.reference,
+    }));
+  return {
+    ...presentVehicle(db, vehicle),
+    score: undefined,
+    note: vehicle.note,
+    products,
+    productCount: products.length,
+  };
+}
+
+export function createVehicle(db, payload) {
+  const input = normalizeVehicleInput(db, payload);
+  const timestamp = now();
+  db.exec("BEGIN");
+  try {
+    const id = uniqueVehicleId(db, vehicleIdBase(input));
+    db.prepare(`INSERT INTO vehicles (id, brand, series, generation, platform, year_from, year_to, engine, body, drive, note, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, input.brand, input.series, input.generation, input.platform, input.yearFrom, input.yearTo,
+      input.engine, input.body, input.drive, input.note, timestamp, timestamp,
+    );
+    replaceVehicleAliases(db, id, input.aliases);
+    replaceVehicleProducts(db, id, input.products);
+    db.exec("COMMIT");
+    return readVehicle(db, id);
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function updateVehicle(db, vehicleId, payload) {
+  const existing = db.prepare("SELECT id FROM vehicles WHERE id = ?").get(vehicleId);
+  if (!existing) {
+    const error = new Error("车型不存在");
+    error.status = 404;
+    throw error;
+  }
+  const input = normalizeVehicleInput(db, payload);
+  db.exec("BEGIN");
+  try {
+    db.prepare(`UPDATE vehicles SET brand = ?, series = ?, generation = ?, platform = ?, year_from = ?, year_to = ?,
+      engine = ?, body = ?, drive = ?, note = ?, updated_at = ? WHERE id = ?`).run(
+      input.brand, input.series, input.generation, input.platform, input.yearFrom, input.yearTo,
+      input.engine, input.body, input.drive, input.note, now(), vehicleId,
+    );
+    replaceVehicleAliases(db, vehicleId, input.aliases);
+    replaceVehicleProducts(db, vehicleId, input.products);
+    db.exec("COMMIT");
+    return readVehicle(db, vehicleId);
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function deleteVehicle(db, vehicleId) {
+  const removed = db.prepare("DELETE FROM vehicles WHERE id = ?").run(vehicleId);
+  return removed.changes > 0;
+}
+
+function describeRelationSku(db, skuId) {
+  const sku = db.prepare(`SELECT s.id, s.brand, s.part_no, s.price, s.status, g.name AS group_name
+    FROM skus s JOIN product_groups g ON g.id = s.group_id WHERE s.id = ?`).get(skuId);
+  return sku ? { id: sku.id, brand: sku.brand, partNo: sku.part_no, price: sku.price, status: sku.status, groupName: sku.group_name } : null;
+}
+
+function supersedeChain(db, skuId) {
+  const chain = [];
+  const seen = new Set([skuId]);
+  let current = skuId;
+  for (let hop = 0; hop < 10; hop += 1) {
+    const next = db.prepare("SELECT to_sku_id FROM sku_relations WHERE from_sku_id = ? AND relation_type = 'supersedes'").get(current);
+    if (!next || seen.has(next.to_sku_id)) break;
+    const sku = describeRelationSku(db, next.to_sku_id);
+    if (!sku) break;
+    chain.push(sku);
+    seen.add(next.to_sku_id);
+    current = next.to_sku_id;
+  }
+  return chain;
+}
+
+export function listSkuRelations(db, skuId) {
+  if (!db.prepare("SELECT 1 FROM skus WHERE id = ?").get(skuId)) {
+    const error = new Error("SKU 不存在");
+    error.status = 404;
+    throw error;
+  }
+  const rows = db.prepare(`SELECT id, relation_type, note, from_sku_id, to_sku_id FROM sku_relations
+    WHERE from_sku_id = ? OR to_sku_id = ? ORDER BY id`).all(skuId, skuId);
+  const interchanges = [];
+  const replacedBy = [];
+  const replaces = [];
+  for (const row of rows) {
+    if (row.relation_type === "interchange") {
+      const other = describeRelationSku(db, row.from_sku_id === skuId ? row.to_sku_id : row.from_sku_id);
+      if (other) interchanges.push({ relationId: row.id, note: row.note, sku: other });
+    } else if (row.from_sku_id === skuId) {
+      const other = describeRelationSku(db, row.to_sku_id);
+      if (other) replacedBy.push({ relationId: row.id, note: row.note, sku: other });
+    } else {
+      const other = describeRelationSku(db, row.from_sku_id);
+      if (other) replaces.push({ relationId: row.id, note: row.note, sku: other });
+    }
+  }
+  return { skuId, interchanges, replacedBy, replaces, chain: supersedeChain(db, skuId) };
+}
+
+export function addSkuRelation(db, skuId, payload = {}) {
+  const type = payload.type === "interchange" || payload.type === "supersedes" ? payload.type : null;
+  if (!type) {
+    const error = new Error("关系类型无效");
+    error.status = 422;
+    throw error;
+  }
+  const targetId = String(payload.targetId || "").trim();
+  if (!db.prepare("SELECT 1 FROM skus WHERE id = ?").get(skuId)) {
+    const error = new Error("SKU 不存在");
+    error.status = 404;
+    throw error;
+  }
+  if (!targetId || !db.prepare("SELECT 1 FROM skus WHERE id = ?").get(targetId)) {
+    const error = new Error("目标 SKU 不存在");
+    error.status = 422;
+    throw error;
+  }
+  if (targetId === skuId) {
+    const error = new Error("不能和自己建立关系");
+    error.status = 422;
+    throw error;
+  }
+  const [from, to] = type === "interchange" && targetId < skuId ? [targetId, skuId] : [skuId, targetId];
+  if (type === "supersedes" && supersedeChain(db, targetId).some((sku) => sku.id === skuId)) {
+    const error = new Error("会形成循环替代");
+    error.status = 409;
+    throw error;
+  }
+  try {
+    db.prepare("INSERT INTO sku_relations (from_sku_id, to_sku_id, relation_type, note, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(from, to, type, String(payload.note || "").trim(), now());
+  } catch (error) {
+    if (String(error.message).includes("UNIQUE")) {
+      const conflict = new Error("这条关系已经存在");
+      conflict.status = 409;
+      throw conflict;
+    }
+    throw error;
+  }
+  return listSkuRelations(db, skuId);
+}
+
+export function deleteSkuRelation(db, relationId) {
+  const removed = db.prepare("DELETE FROM sku_relations WHERE id = ?").run(Number(relationId));
+  return removed.changes > 0;
+}
+
+export function lookupVehicleParts(db, rawQuery = "") {
+  const query = String(rawQuery || "").trim();
+  const scope = detectPartScope(db, query);
+  const aliasesStmt = db.prepare("SELECT alias, normalized FROM vehicle_aliases WHERE vehicle_id = ?");
+  const scored = db.prepare("SELECT * FROM vehicles").all()
+    .map((vehicle) => ({ vehicle, score: scoreVehicle(vehicle, aliasesStmt.all(vehicle.id), scope.remainder) }))
+    .sort((left, right) => right.score - left.score);
+  const best = scored[0];
+  const scopeInfo = {
+    set: scope.set ? { id: scope.set.id, name: scope.set.name } : null,
+    partTypes: scope.partTypes,
+  };
+  if (!best || best.score < 55) {
+    return {
+      query,
+      ...scopeInfo,
+      vehicle: null,
+      categories: [],
+      missing: scope.partTypes.map((partType) => partType.name),
+      candidates: scored.filter((entry) => entry.score > 0).slice(0, 5)
+        .map((entry) => presentVehicle(db, entry.vehicle, entry.score)),
+    };
+  }
+  const links = db.prepare(`SELECT vp.group_id, vp.part_type_id, vp.verification_status, vp.source, vp.position,
+      g.name, g.reference, g.category, g.image
+    FROM vehicle_products vp JOIN product_groups g ON g.id = vp.group_id
+    WHERE vp.vehicle_id = ?`).all(best.vehicle.id);
+  const categories = scope.partTypes.map((partType) => ({
+    partType,
+    items: links.filter((link) => link.part_type_id === partType.id).map((link) => ({
+      group: {
+        id: link.group_id,
+        name: link.name,
+        reference: link.reference,
+        category: link.category,
+        image: link.image,
+        position: link.position,
+        verificationStatus: link.verification_status,
+        source: link.source,
+      },
+      skus: groupSkus(db, link.group_id),
+    })),
+  }));
+  return {
+    query,
+    ...scopeInfo,
+    vehicle: presentVehicle(db, best.vehicle),
+    categories,
+    missing: categories.filter((category) => !category.items.length).map((category) => category.partType.name),
+    candidates: [],
+  };
 }

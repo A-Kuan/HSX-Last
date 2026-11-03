@@ -12,6 +12,11 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     allowedHosts: ["terminal.local"],
+    proxy: {
+      "/hsx-sku/api": {
+        target: "http://127.0.0.1:4188",
+      },
+    },
     warmup: {
       clientFiles: ["./src/main.jsx"],
     },

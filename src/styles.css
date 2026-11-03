@@ -336,3 +336,77 @@ kbd { border: 1px solid var(--line); border-radius: 4px; background: white; padd
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* SKU maintenance core */
+.workspace { height: calc(100% - 64px); overflow-y: auto; padding-bottom: 104px; }
+.sku-only-header { grid-template-columns: 1fr auto; }
+.header-mode { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+.header-mode svg { width: 18px; height: 18px; }
+.local-search { width: min(520px, 48vw); }
+.select-filter { min-width: 220px; height: 44px; border: 1px solid var(--line-strong); border-radius: 6px; display: flex; align-items: center; padding: 0 12px; color: #344054; background: white; }
+.select-filter select { flex: 1; border: 0; outline: 0; background: transparent; appearance: none; }
+.select-filter svg { width: 16px; height: 16px; }
+.sku-header, .sku-row { grid-template-columns: 30px 42px minmax(220px, 1.35fr) minmax(130px, .8fr) minmax(145px, .95fr) minmax(165px, 1.1fr) 90px 82px 42px; }
+.product-image.is-small { width: 62px; height: 50px; }
+.sku-status.status-draft { color: #b54708; }
+.sku-status.status-draft i, .detail-status.status-draft { background: #f79009; }
+.sku-status.status-enabled { color: #079566; }
+.sku-status.status-enabled i, .detail-status.status-enabled { background: #0db87a; }
+.sku-status.status-disabled { color: #667085; }
+.sku-status.status-disabled i, .detail-status.status-disabled { background: #98a2b3; }
+.error-state > svg { color: var(--danger); }
+.detail-data-grid { padding: 24px 28px; }
+.detail-data-grid dl { display: grid; grid-template-columns: 145px 1fr; margin: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.detail-data-grid dt, .detail-data-grid dd { min-height: 48px; margin: 0; padding: 13px 16px; border-top: 1px solid var(--line); }
+.detail-data-grid dt:nth-of-type(1), .detail-data-grid dd:nth-of-type(1) { border-top: 0; }
+.detail-data-grid dt { color: var(--muted); background: #f7f9fb; }
+.activity-list { padding: 20px 28px; }
+.activity-list > div:not(.detail-placeholder) { min-height: 62px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; justify-content: center; gap: 7px; }
+.activity-list small { color: var(--muted); }
+.sku-edit-drawer { width: min(760px, 82vw); }
+.sku-edit-drawer > header { padding: 0 24px; }
+.sku-edit-drawer form { padding: 20px 24px 100px; }
+.sku-edit-drawer form > section { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 22px; }
+.sku-edit-drawer form h3 { margin: 0 0 16px; font-size: 16px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.form-error { min-height: 44px; display: flex; align-items: center; gap: 8px; color: #b42318; background: #fef3f2; border: 1px solid #fecdca; border-radius: 6px; padding: 0 12px; margin-bottom: 18px; }
+.form-error svg { width: 17px; height: 17px; }
+.edit-drawer label.required::before { position: static; content: none; }
+.edit-drawer label.required { font-weight: 600; }
+.edit-drawer label.required::after { content: " *"; color: var(--danger); position: absolute; left: auto; right: 0; top: 0; }
+.edit-drawer input:disabled { background: #f2f4f7; color: var(--muted); }
+.edit-drawer input.is-invalid { border-color: var(--danger); }
+.field-error { color: #b42318; }
+.section-title { display: flex; justify-content: space-between; align-items: center; }
+.text-button, .danger-text-button { border: 0; background: transparent; display: inline-flex; align-items: center; gap: 6px; padding: 4px; }
+.text-button { color: var(--blue); }
+.danger-text-button { color: #b42318; margin-left: auto; }
+.text-button svg, .danger-text-button svg { width: 16px; height: 16px; }
+.fitment-editor { background: #f8fafc; border: 1px solid var(--line); border-radius: 7px; padding: 16px; margin-bottom: 12px; }
+.draft-delete-row { min-height: 54px; display: flex; align-items: center; justify-content: flex-end; gap: 10px; color: var(--muted); padding-bottom: 90px; }
+.danger-button { min-height: 40px; border: 1px solid #d92d20; border-radius: 6px; color: white; background: #d92d20; padding: 0 14px; }
+.sku-edit-drawer form > footer { width: min(760px, 82vw); }
+.import-modal { width: min(680px, calc(100vw - 36px)); }
+.import-toolbar { display: flex; gap: 10px; margin-bottom: 16px; }
+.file-button { position: relative; overflow: hidden; }
+.file-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.selected-file { display: flex; align-items: center; gap: 8px; color: var(--muted); padding: 10px 12px; background: #f8fafc; border-radius: 6px; }
+.selected-file svg { width: 18px; height: 18px; }
+.import-preview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+.import-preview > div { min-height: 82px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 7px; background: #f8fafc; }
+.import-preview strong { font-size: 24px; }
+.import-preview span { color: var(--muted); font-size: 13px; }
+.import-preview .has-error { color: #b42318; border-color: #fecdca; background: #fef3f2; }
+.import-errors { max-height: 220px; overflow-y: auto; border: 1px solid #fecdca; border-radius: 6px; }
+.import-errors > div { display: grid; grid-template-columns: 165px 1fr; gap: 10px; padding: 10px 12px; border-top: 1px solid #fee4e2; }
+.import-errors > div:first-child { border-top: 0; }
+.import-errors span { color: #b42318; }
+.bottom-bar .pagination { gap: 12px; }
+.bottom-bar .pagination button, .bottom-bar .pagination button:first-child { min-width: 40px; margin: 0; border-color: var(--line); }
+.bottom-bar .pagination strong { min-width: 62px; text-align: center; }
+
+@media (max-width: 900px) {
+  .sku-edit-drawer { width: 100%; }
+  .sku-edit-drawer form > footer { width: 100%; }
+  .form-grid { grid-template-columns: 1fr; }
+}

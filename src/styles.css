@@ -514,7 +514,7 @@ kbd { border: 1px solid var(--line); border-radius: 4px; background: white; padd
 .workbench{width:min(1240px,86vw);overflow:hidden;display:flex;flex-direction:column;color:#171c28}.workbench>header{height:84px;flex-shrink:0;padding:0 32px;border:0}.workbench>header h2{font-size:28px}.workbench form{padding:0 32px;flex:1;min-height:0;overflow:auto;scrollbar-width:none;padding-bottom:100px}.workbench form::-webkit-scrollbar{display:none}.wb-columns{display:grid;grid-template-columns:1.25fr 1fr;gap:28px}.wb-main{min-width:0}.wb-main>section{border-bottom:1px solid #e1e5eb;padding:20px 0;margin:0}.workbench form h3{font-size:20px;margin:0 0 18px}.workbench label{font-size:16px;margin-bottom:16px}.workbench input,.workbench select{font-size:16px;min-height:40px}.workbench textarea{font-size:16px;min-height:78px}.workbench .form-grid{gap:0 20px}.wb-vehicles{border-left:1px solid #e1e5eb;padding:20px 0 0 24px}.wb-vehicles .section-title h3{margin:0}.workbench .text-button{font-size:15px}.wb-fitment{border:1px solid #dce1e9;border-radius:8px;padding:18px;margin-top:16px}.wb-fitment strong{font-size:18px}.wb-fitment p,.wb-fitment span{font-size:15px;color:#596274}.wb-fitment .section-title>div{display:flex;gap:10px}.wb-empty{text-align:center;padding:60px 10px;color:#687386}.wb-empty h4{font-size:18px;margin:16px 0 8px}.wb-empty p{font-size:15px}.wb-vehicle-editor{margin-top:24px;padding-top:24px;border-top:1px solid #e1e5eb}.wb-actions{display:flex;justify-content:flex-end;gap:10px;align-items:center;margin-top:20px}.wb-oe{padding:20px 0;border-top:1px solid #e1e5eb;margin-top:10px}.wb-oe .section-title h3{margin:0}.wb-oe-input{display:flex;gap:8px;margin-top:16px}.wb-oe-input input{flex:1;min-width:0}.wb-help{font-size:14px;color:#667085;line-height:1.6}.wb-chips{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}.wb-chips>span{display:inline-flex;align-items:center;gap:8px;background:#f0f4fb;border:1px solid #e0e7f2;border-radius:6px;padding:7px 10px;font-size:15px;font-variant-numeric:tabular-nums}.wb-chips button,.wb-notice button{border:0;background:transparent;display:flex;padding:0;color:#667085}.workbench form>footer{width:min(1240px,86vw);display:flex;align-items:center;justify-content:flex-end;gap:12px;height:82px;padding:18px 32px;z-index:5}.workbench form>footer button{font-size:16px;min-height:42px;padding:0 22px}.workbench .wb-next{margin:0 auto 0 0;display:flex;align-items:center;gap:10px;font-size:15px}.workbench .wb-next input{width:18px;min-height:18px}.wb-notice{background:#edf4ff;color:#164ecb;padding:12px 16px;border-radius:6px;display:flex;justify-content:space-between;font-size:15px;margin-bottom:14px}.wb-modal-shade{position:fixed;inset:0;z-index:100;background:#18223855;display:flex;align-items:center;justify-content:center}.wb-modal{background:white;border-radius:14px;padding:28px;width:620px;box-shadow:0 24px 80px #15203533;font-size:16px}.wb-modal h2{font-size:24px;margin:0}.wb-modal p{color:#667085;line-height:1.7}.wb-modal textarea{width:100%;height:180px;border:1px solid #cdd4df;border-radius:7px;padding:14px;font-size:16px;resize:vertical}.wb-preview{margin-top:18px;max-height:220px;overflow:auto;scrollbar-width:thin}.wb-small{width:510px}.workbench button:disabled{opacity:.45;cursor:not-allowed}.workbench h3>span{font-size:15px;color:#667085;font-weight:400;margin-left:8px}@media(max-width:1100px){.workbench{width:96vw}.workbench form>footer{width:96vw}.wb-columns{gap:18px;grid-template-columns:1.2fr 1fr}.workbench form{padding-left:22px;padding-right:22px}.wb-vehicles{padding-left:18px}.workbench label{font-size:15px}}
 
 /* Fidelity calibration against the user-selected 1488 × 1058 reference. */
-.workbench{width:84.15vw;max-width:none;color:#101114}.workbench>header{height:132px;padding:0 32px;align-items:flex-start;padding-top:76px}.workbench>header h2{font-size:30px;line-height:36px}.workbench>header .icon-button{margin-top:0}.workbench form{padding:20px 20px 110px 32px}.wb-columns{grid-template-columns:1.26fr 1fr;gap:22px}.wb-main>section{padding:0 0 26px;margin:0 0 18px}.workbench form h3{font-size:22px;margin:0 0 22px;line-height:28px}.workbench .form-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:0 22px}.workbench label{font-size:16px;margin-bottom:18px;font-weight:500}.workbench input,.workbench select{height:39px;min-height:39px;border:1px solid #cfd4df;border-radius:6px;padding:7px 12px;font-size:17px;box-shadow:0 1px 2px #10182804}.workbench label.required::before{display:none}.workbench label.required::after{content:" *";color:#e32020;position:absolute;top:0;left:auto;margin-left:5px}.workbench .wb-product{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 22px}.wb-product>h3{grid-column:1/-1}.workbench .wb-product>.form-grid{display:contents}.workbench .wb-product>label{grid-column:1}.workbench .wb-product>.form-grid>label:first-child{grid-column:2;grid-row:2}.workbench .wb-sku>.form-grid label{display:grid;grid-template-columns:90px minmax(0,1fr);align-items:center;gap:6px;margin-bottom:12px;font-size:16px}.workbench .wb-sku>.form-grid label>input,.workbench .wb-sku>.form-grid label>select{margin:0}.workbench .wb-sku>.form-grid label.required::after{display:none}.workbench .wb-sku>.form-grid label:has([aria-label="品牌"]){grid-column:1;grid-row:2}.workbench .wb-sku>.form-grid label:has([aria-label="品牌件号"]){grid-column:1;grid-row:3}.workbench .wb-sku>.form-grid label:has(select){grid-column:1;grid-row:4}.workbench .wb-sku>.form-grid label:has([aria-label="包装内含数量"]){grid-column:2;grid-row:1;grid-template-columns:112px minmax(0,1fr)}.workbench .wb-sku>.form-grid label:has([aria-label="销售价（元）"]){grid-column:2;grid-row:2;grid-template-columns:112px minmax(0,1fr)}.workbench .wb-sku>.form-grid label:last-child{grid-column:2;grid-row:3;grid-template-columns:112px minmax(0,1fr)}.workbench .field-error{grid-column:1/-1}.wb-vehicles{padding:0 0 0 22px;border-left:1px solid #dce1e9}.wb-vehicles>.section-title{position:relative;margin-bottom:22px}.wb-vehicles>.section-title>.text-button{position:absolute;right:0;top:44px;border:1px solid #0055ff;border-radius:6px;padding:8px 12px;color:#0055ff}.wb-fitment-count{font-size:16px;color:#555b66;margin:0 0 28px}.wb-fitment{padding:20px 22px;min-height:140px;border-radius:6px;margin-top:14px}.wb-fitment strong{font-size:19px}.wb-fitment p{font-size:16px;color:#24272d}.wb-oe{margin-top:12px;padding:20px 0;border-top:1px solid #dce1e9}.wb-oe-input{margin-top:12px}.wb-help{margin:8px 0;font-size:14px}.wb-chips{gap:6px;margin:12px 0 0}.wb-chips>span{background:#e9f0ff;border:0;padding:6px 8px;border-radius:4px;font-size:15px}.workbench .wb-note{display:block;border-top:1px solid #dce1e9;padding-top:18px;font-size:22px;font-weight:600;margin-top:20px}.workbench .wb-note textarea{font-size:16px;font-weight:400;height:82px;min-height:82px;margin-top:12px}.workbench form>footer{width:84.15vw;height:86px;padding:16px 20px 16px 28px}.workbench form>footer button{height:46px;min-width:112px;font-size:17px;border-radius:7px}.workbench form>footer .primary-button{min-width:150px}.workbench .wb-next{display:flex;margin:0 auto 0 0;gap:12px;font-size:17px;white-space:nowrap}.wb-next input{width:22px;height:22px;min-height:22px;box-shadow:none}.wb-notice{font-size:15px}.wb-vehicle-editor{margin-top:30px}.wb-vehicle-editor .wb-actions{flex-wrap:wrap}
+.workbench{width:84.15vw;max-width:none;color:#101114}.workbench>header{height:132px;padding:0 32px;align-items:flex-start;padding-top:76px}.workbench>header h2{font-size:30px;line-height:36px}.workbench>header .icon-button{margin-top:0}.workbench form{padding:20px 20px 110px 32px}.wb-columns{grid-template-columns:1.26fr 1fr;gap:22px}.wb-main>section{padding:0 0 26px;margin:0 0 18px}.workbench form h3{font-size:22px;margin:0 0 22px;line-height:28px}.workbench .form-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:0 22px}.workbench label{font-size:16px;margin-bottom:18px;font-weight:500}.workbench input,.workbench select{height:39px;min-height:39px;border:1px solid #cfd4df;border-radius:6px;padding:7px 12px;font-size:17px;box-shadow:0 1px 2px #10182804}.workbench label.required::before{display:none}.workbench label.required::after{content:" *";color:#e32020;position:absolute;top:0;left:auto;margin-left:5px}.workbench .wb-product{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 22px}.wb-product>h3{grid-column:1/-1}.workbench .wb-product>.form-grid{display:contents}.workbench .wb-product>label{grid-column:1}.workbench .wb-product>.form-grid>label:first-child{grid-column:2;grid-row:2}.workbench .wb-sku>.form-grid label{display:grid;grid-template-columns:90px minmax(0,1fr);align-items:center;gap:6px;margin-bottom:12px;font-size:16px}.workbench .wb-sku>.form-grid label>input,.workbench .wb-sku>.form-grid label>select,.workbench .wb-sku>.form-grid label>.search-select{margin:0}.workbench .wb-sku>.form-grid label.required::after{display:none}.workbench .wb-sku>.form-grid label:has([aria-label="品牌"]){grid-column:1;grid-row:2}.workbench .wb-sku>.form-grid label:has([aria-label="品牌件号"]){grid-column:1;grid-row:3}.workbench .wb-sku>.form-grid label:has(select),.workbench .wb-sku>.form-grid label:has(.search-select){grid-column:1;grid-row:4}.workbench .wb-sku>.form-grid label:has([aria-label="包装内含数量"]){grid-column:2;grid-row:1;grid-template-columns:112px minmax(0,1fr)}.workbench .wb-sku>.form-grid label:has([aria-label="销售价（元）"]){grid-column:2;grid-row:2;grid-template-columns:112px minmax(0,1fr)}.workbench .wb-sku>.form-grid label:last-child{grid-column:2;grid-row:3;grid-template-columns:112px minmax(0,1fr)}.workbench .field-error{grid-column:1/-1}.wb-vehicles{padding:0 0 0 22px;border-left:1px solid #dce1e9}.wb-vehicles>.section-title{position:relative;margin-bottom:22px}.wb-vehicles>.section-title>.text-button{position:absolute;right:0;top:44px;border:1px solid #0055ff;border-radius:6px;padding:8px 12px;color:#0055ff}.wb-fitment-count{font-size:16px;color:#555b66;margin:0 0 28px}.wb-fitment{padding:20px 22px;min-height:140px;border-radius:6px;margin-top:14px}.wb-fitment strong{font-size:19px}.wb-fitment p{font-size:16px;color:#24272d}.wb-oe{margin-top:12px;padding:20px 0;border-top:1px solid #dce1e9}.wb-oe-input{margin-top:12px}.wb-help{margin:8px 0;font-size:14px}.wb-chips{gap:6px;margin:12px 0 0}.wb-chips>span{background:#e9f0ff;border:0;padding:6px 8px;border-radius:4px;font-size:15px}.workbench .wb-note{display:block;border-top:1px solid #dce1e9;padding-top:18px;font-size:22px;font-weight:600;margin-top:20px}.workbench .wb-note textarea{font-size:16px;font-weight:400;height:82px;min-height:82px;margin-top:12px}.workbench form>footer{width:84.15vw;height:86px;padding:16px 20px 16px 28px}.workbench form>footer button{height:46px;min-width:112px;font-size:17px;border-radius:7px}.workbench form>footer .primary-button{min-width:150px}.workbench .wb-next{display:flex;margin:0 auto 0 0;gap:12px;font-size:17px;white-space:nowrap}.wb-next input{width:22px;height:22px;min-height:22px;box-shadow:none}.wb-notice{font-size:15px}.wb-vehicle-editor{margin-top:30px}.wb-vehicle-editor .wb-actions{flex-wrap:wrap}
 
 .workbench .wb-product input:disabled{background:white;color:#171c28}.workbench .wb-sku .wb-oe{margin-top:20px}.workbench .wb-product{min-height:236px}.workbench .wb-main .wb-product label.required::after{display:none}.workbench .wb-product .required{font-weight:500}.workbench .wb-sku .form-grid label.required{font-weight:500}
 /* User-requested compact density; preserve selected drawer composition. */
@@ -523,4 +523,214 @@ kbd { border: 1px solid var(--line); border-radius: 4px; background: white; padd
 /* Brand select keeps the workbench grid slot of the old brand field. */
 .workbench .wb-sku>.form-grid label.wb-brand{grid-column:1;grid-row:2}
 .workbench .wb-brand-control{display:flex;flex-direction:column;gap:8px;min-width:0}
-.workbench .wb-brand-control>select,.workbench .wb-brand-control>input{width:100%;margin:0}
+.workbench .wb-brand-control>select,.workbench .wb-brand-control>input,.workbench .wb-brand-control>.search-select{width:100%;margin:0}
+
+/* ==========================================================================
+   Shared searchable select (src/components/SearchSelect.jsx)
+   One control for every "选择列": 商品组 / 品牌 / 件类 / 状态 / 品类筛选 …
+   ========================================================================== */
+.search-select { position: relative; min-width: 0; }
+
+.search-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 34px;
+  min-height: 34px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1;
+  text-align: left;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.search-select-trigger:hover:not(:disabled) { border-color: #b8c3d4; }
+.search-select-trigger.is-open {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(20, 99, 255, .12);
+}
+.search-select-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.search-select-value small { color: var(--muted); font-size: .88em; }
+.search-select-trigger.is-placeholder .search-select-value { color: var(--faint); }
+.search-select-caret { width: 14px; height: 14px; color: var(--muted); transition: transform .15s ease; }
+.search-select-trigger.is-open .search-select-caret { transform: rotate(180deg); }
+
+.search-select-panel {
+  position: fixed;
+  z-index: 320;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid #d7dee9;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgba(16, 24, 40, .16), 0 2px 8px rgba(16, 24, 40, .08);
+  outline: none;
+  animation: search-select-pop .12s ease-out;
+}
+@keyframes search-select-pop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.search-select-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  margin-bottom: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #f7f9fb;
+}
+.search-select-search svg { width: 14px; height: 14px; color: var(--faint); }
+.search-select-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+.search-select-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  scrollbar-width: thin;
+}
+
+.search-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font-size: inherit;
+  line-height: 1.35;
+  text-align: left;
+}
+.search-select-option-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.search-select-option-main > span:first-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.search-select-option-main small { color: var(--muted); font-size: .85em; white-space: nowrap; }
+.search-select-option.is-active { background: #eef3fb; }
+.search-select-option.is-selected { background: var(--blue-soft); color: var(--blue-dark); }
+.search-select-option.is-selected small { color: var(--blue-dark); }
+.search-select-option svg { width: 14px; height: 14px; color: var(--blue); }
+.search-select-option.is-action { color: var(--blue); font-weight: 600; }
+.search-select-option.is-action:hover { background: var(--blue-soft); }
+.search-select-empty { margin: 0; padding: 14px 8px; color: var(--faint); font-size: 12px; text-align: center; }
+.search-select-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+/* Filter bar: the pill already owns the border, so the trigger goes bare. */
+.select-filter { gap: 4px; }
+.select-filter > .search-select { flex: 1; min-width: 0; }
+.select-filter .search-select-trigger { height: 100%; border: 0; padding: 0; background: transparent; box-shadow: none; }
+.select-filter .search-select-trigger.is-open { box-shadow: none; }
+
+/* Vehicle drawer product row / relation form. */
+.product-row .search-select-trigger { padding: 0 8px; border-radius: 5px; font-size: 13px; }
+.relation-form-head .search-select { flex: 0 0 auto; }
+.relation-form-head .search-select-trigger { padding: 0 8px; border-radius: 5px; }
+
+/* SKU workbench drawer keeps its 34px / 14px field density. */
+.workbench .search-select-trigger {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  box-shadow: 0 1px 2px #10182804;
+}
+.edit-drawer label > .search-select { margin-top: 6px; }
+
+/* ==========================================================================
+   配置中心：基础字典维护（src/components/DictionaryAdmin.jsx）
+   ========================================================================== */
+.dict-workspace { padding-bottom: 48px; }
+.dict-workspace .status-tabs { margin-top: 12px; }
+.dict-panel {
+  margin-top: 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.dict-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+.dict-row:first-child { border-top: 0; }
+.dict-row:hover { background: #fafbfd; }
+.dict-row.is-confirming { background: #fff6f5; }
+.dict-main { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.dict-main strong { font-size: 13px; font-weight: 600; }
+.dict-main small { color: var(--muted); font-size: 12px; }
+.dict-actions { display: flex; gap: 12px; flex: none; }
+.dict-actions .text-button { font-size: 13px; }
+.dict-actions .is-danger { color: var(--danger); }
+.dict-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: #f7f9fb;
+  border-bottom: 1px solid var(--line);
+}
+.dict-editor-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.dict-editor-fields input {
+  height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 0 10px;
+  font-size: 13px;
+  background: #fff;
+}
+.dict-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dict-editor-actions button { height: 32px; padding: 0 16px; font-size: 13px; }
+.dict-checks { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.dict-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #344054; }
+.dict-check input { width: 14px; height: 14px; margin: 0; }
+.dict-error { margin: 16px 0 0; color: #b42318; font-size: 13px; }
+
+.workbench .wb-category > .search-select { margin-top: 6px; }
+.workbench .wb-category > input { margin-top: 8px; }

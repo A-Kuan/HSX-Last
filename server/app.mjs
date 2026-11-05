@@ -1,8 +1,10 @@
 import { createServer } from "node:http";
 import {
-  addSkuRelation, createSku, createVehicle, deleteDraft, deleteSkuRelation, deleteVehicle, exportSkuRows, importSkuRows,
-  listActivity, listBrands, listCatalog, listGroups, listPartTypes, listSkuRelations, listVehicles, lookupVehicleParts, openDatabase, readSku,
-  readVehicle, updateGroup, updateSku, updateStatus, updateVehicle,
+  addSkuRelation, createDictionaryItem, createSku, createVehicle, deleteDictionaryItem, deleteDraft, deleteSkuRelation,
+  deleteVehicle, exportSkuRows, importSkuRows,
+  listActivity, listBrands, listCatalog, listDictionaries, listGroups, listPartTypes, listSkuRelations, listVehicles,
+  lookupVehicleParts, openDatabase, readSku,
+  readVehicle, updateDictionaryItem, updateGroup, updateSku, updateStatus, updateVehicle,
 } from "./db.mjs";
 
 const json = (res, status, body) => {
@@ -59,6 +61,26 @@ export function createApp({ db = openDatabase() } = {}) {
       }
       if (req.method === "GET" && pathname === "/api/brands") {
         return json(res, 200, { items: listBrands(db) });
+      }
+      if (req.method === "GET" && pathname === "/api/dictionaries") {
+        return json(res, 200, listDictionaries(db));
+      }
+      const dictionaryMatch = pathname.match(/^\/api\/dictionaries\/([^/]+)$/);
+      const dictionaryItemMatch = pathname.match(/^\/api\/dictionaries\/([^/]+)\/([^/]+)$/);
+      if (req.method === "POST" && dictionaryMatch) {
+        return json(res, 201, createDictionaryItem(db, decodeURIComponent(dictionaryMatch[1]), await readJson(req)));
+      }
+      if (req.method === "PUT" && dictionaryItemMatch) {
+        return json(res, 200, updateDictionaryItem(
+          db,
+          decodeURIComponent(dictionaryItemMatch[1]),
+          decodeURIComponent(dictionaryItemMatch[2]),
+          await readJson(req),
+        ));
+      }
+      if (req.method === "DELETE" && dictionaryItemMatch) {
+        deleteDictionaryItem(db, decodeURIComponent(dictionaryItemMatch[1]), decodeURIComponent(dictionaryItemMatch[2]));
+        return noContent(res);
       }
       const groupMatch = pathname.match(/^\/api\/groups\/([^/]+)$/);
       if (req.method === "PUT" && groupMatch) {

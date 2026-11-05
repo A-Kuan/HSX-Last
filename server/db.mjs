@@ -149,6 +149,21 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_sku_relations_from ON sku_relations(from_sku_id);
     CREATE INDEX IF NOT EXISTS idx_sku_relations_to ON sku_relations(to_sku_id);
+    CREATE TABLE IF NOT EXISTS categories (
+      name TEXT PRIMARY KEY,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS brands (
+      name TEXT PRIMARY KEY COLLATE NOCASE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS units (
+      name TEXT PRIMARY KEY,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
   `);
 }
 
@@ -163,6 +178,10 @@ const seedPartSets = [
   ["sanlv", "三滤", "机油滤清器、空气滤清器、空调滤清器", [["oil-filter", 1], ["air-filter", 2], ["cabin-filter", 3]]],
   ["silv", "四滤", "三滤再加燃油滤清器", [["oil-filter", 1], ["air-filter", 2], ["cabin-filter", 3], ["fuel-filter", 4]]],
 ];
+
+const seedCategories = ["制动片", "滤清器", "底盘悬挂", "保养件"];
+const seedBrands = ["BOSCH", "MANN", "MAHLE", "TRW", "DELPHI", "MOOG", "ATE", "LEMFÖRDER", "SACHS", "SKF", "VALEO", "DENSO", "NGK", "FEBI", "SWAG"];
+const seedUnits = ["个", "件", "套", "盒"];
 
 const seedVehicleGroups = [
   { id: "of-ea839", name: "机油滤清器（纸芯）", reference: "DEMO-FL01", image: "oil-filter.png", category: "滤清器", note: "纸芯式，适配 EA839 3.0T" },
@@ -213,6 +232,7 @@ function ensureReferenceData(db) {
     insertSet.run(id, name, note);
     for (const [partTypeId, sortOrder] of items) insertSetItem.run(id, partTypeId, sortOrder);
   }
+  ensureDictionarySeeds(db);
 }
 
 function seedVehicleCatalog(db) {
@@ -337,8 +357,222 @@ export function listGroups(db) {
 }
 
 export function listBrands(db) {
-  return db.prepare("SELECT DISTINCT brand FROM skus WHERE TRIM(brand) <> '' ORDER BY brand COLLATE NOCASE").all()
-    .map((row) => row.brand);
+  return db.prepare("SELECT name FROM brands ORDER BY sort_order, name COLLATE NOCASE").all().map((row) => row.name);
+}
+
+const DICTIONARY_KINDS = {
+  categories: { table: "categories", label: "配件品类", refTable: "product_groups", refColumn: "category" },
+  brands: { table: "brands", label: "品牌", refTable: "skus", refColumn: "brand" },
+  units: { table: "units", label: "单位", refTable: "skus", refColumn: "unit" },
+};
+
+function httpError(status, message, details) {
+  const error = new Error(message);
+  error.status = status;
+  if (details) error.details = details;
+  return error;
+}
+
+function ensureDictionarySeeds(db) {
+  const timestamp = now();
+  const addCategory = db.prepare("INSERT OR IGNORE INTO categories (name, sort_order, created_at) VALUES (?, ?, ?)");
+  seedCategories.forEach((name, index) => addCategory.run(name, (index + 1) * 10, timestamp));
+  db.prepare(`INSERT OR IGNORE INTO categories (name, sort_order, created_at)
+    SELECT DISTINCT TRIM(category), 500, ? FROM product_groups WHERE TRIM(category) <> ''`).run(timestamp);
+  const addBrand = db.prepare("INSERT OR IGNORE INTO brands (name, sort_order, created_at) VALUES (?, ?, ?)");
+  seedBrands.forEach((name, index) => addBrand.run(name, (index + 1) * 10, timestamp));
+  db.prepare(`INSERT OR IGNORE INTO brands (name, sort_order, created_at)
+    SELECT DISTINCT TRIM(brand), 500, ? FROM skus WHERE TRIM(brand) <> ''`).run(timestamp);
+  const addUnit = db.prepare("INSERT OR IGNORE INTO units (name, sort_order, created_at) VALUES (?, ?, ?)");
+  seedUnits.forEach((name, index) => addUnit.run(name, (index + 1) * 10, timestamp));
+  db.prepare(`INSERT OR IGNORE INTO units (name, sort_order, created_at)
+    SELECT DISTINCT TRIM(unit), 500, ? FROM skus WHERE TRIM(unit) <> ''`).run(timestamp);
+}
+
+/** 新增 SKU / 商品组时把没登记过的品牌、单位、品类补进字典，配置中心里就能看到。 */
+function registerDictionaryValue(db, kind, value) {
+  const config = DICTIONARY_KINDS[kind];
+  const name = String(value ?? "").trim();
+  if (!config || !name) return;
+  db.prepare(`INSERT OR IGNORE INTO ${config.table} (name, sort_order, created_at) VALUES (?, 500, ?)`).run(name, now());
+}
+
+function countDictionaryUsage(db, config, name) {
+  return db.prepare(`SELECT COUNT(*) AS count FROM ${config.refTable} WHERE ${config.refColumn} = ? COLLATE NOCASE`).get(name).count;
+}
+
+export function listDictionaries(db) {
+  const list = (table, refTable, refColumn, collate = "") => db.prepare(`SELECT d.name, d.sort_order AS sortOrder,
+      (SELECT COUNT(*) FROM ${refTable} r WHERE r.${refColumn} = d.name${collate ? " COLLATE NOCASE" : ""}) AS usageCount
+    FROM ${table} d ORDER BY d.sort_order, d.name${collate ? " COLLATE NOCASE" : ""}`).all();
+  const { items: partTypes, sets: partSets } = listPartTypes(db);
+  return {
+    categories: list("categories", "product_groups", "category"),
+    brands: list("brands", "skus", "brand", "nocase"),
+    units: list("units", "skus", "unit"),
+    partTypes: partTypes.map((partType) => ({
+      ...partType,
+      usageCount: db.prepare(`SELECT
+          (SELECT COUNT(*) FROM vehicle_products WHERE part_type_id = ?) +
+          (SELECT COUNT(*) FROM part_set_items WHERE part_type_id = ?) AS count`).get(partType.id, partType.id).count,
+    })),
+    partSets,
+  };
+}
+
+export function createDictionaryItem(db, kind, payload = {}) {
+  if (kind === "part-types") return createPartTypeItem(db, payload);
+  if (kind === "part-sets") return createPartSetItem(db, payload);
+  const config = DICTIONARY_KINDS[kind];
+  if (!config) throw httpError(404, "未知的字典类型");
+  const name = String(payload.name ?? "").trim();
+  if (!name) throw httpError(422, "请填写名称", { name: "请填写名称" });
+  if (name.length > 40) throw httpError(422, "名称最多 40 个字符", { name: "名称最多 40 个字符" });
+  if (db.prepare(`SELECT 1 FROM ${config.table} WHERE name = ? COLLATE NOCASE`).get(name)) {
+    throw httpError(409, `${config.label}已存在`, { name: `${config.label}已存在` });
+  }
+  const sortOrder = db.prepare(`SELECT COALESCE(MAX(sort_order), 0) + 10 AS next FROM ${config.table}`).get().next;
+  db.prepare(`INSERT INTO ${config.table} (name, sort_order, created_at) VALUES (?, ?, ?)`).run(name, sortOrder, now());
+  return { name, sortOrder, usageCount: 0 };
+}
+
+export function updateDictionaryItem(db, kind, id, payload = {}) {
+  if (kind === "part-types") return updatePartTypeItem(db, id, payload);
+  if (kind === "part-sets") return updatePartSetItem(db, id, payload);
+  const config = DICTIONARY_KINDS[kind];
+  if (!config) throw httpError(404, "未知的字典类型");
+  const current = db.prepare(`SELECT * FROM ${config.table} WHERE name = ?`).get(id);
+  if (!current) throw httpError(404, `${config.label}不存在`);
+  const name = String(payload.name ?? current.name).trim();
+  if (!name) throw httpError(422, "请填写名称", { name: "请填写名称" });
+  if (name === current.name) {
+    return { name, sortOrder: current.sort_order, usageCount: countDictionaryUsage(db, config, name) };
+  }
+  if (db.prepare(`SELECT 1 FROM ${config.table} WHERE name = ? COLLATE NOCASE`).get(name)) {
+    throw httpError(409, `${config.label}已存在`, { name: `${config.label}已存在` });
+  }
+  db.exec("BEGIN");
+  try {
+    db.prepare(`INSERT INTO ${config.table} (name, sort_order, created_at) VALUES (?, ?, ?)`).run(name, current.sort_order, current.created_at);
+    db.prepare(`UPDATE ${config.refTable} SET ${config.refColumn} = ? WHERE ${config.refColumn} = ? COLLATE NOCASE`).run(name, current.name);
+    db.prepare(`DELETE FROM ${config.table} WHERE name = ?`).run(current.name);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return { name, sortOrder: current.sort_order, usageCount: countDictionaryUsage(db, config, name) };
+}
+
+export function deleteDictionaryItem(db, kind, id) {
+  if (kind === "part-types") return deletePartTypeItem(db, id);
+  if (kind === "part-sets") return deletePartSetItem(db, id);
+  const config = DICTIONARY_KINDS[kind];
+  if (!config) throw httpError(404, "未知的字典类型");
+  const current = db.prepare(`SELECT * FROM ${config.table} WHERE name = ?`).get(id);
+  if (!current) throw httpError(404, `${config.label}不存在`);
+  const count = countDictionaryUsage(db, config, current.name);
+  if (count) {
+    throw httpError(409, `${config.label}「${current.name}」仍被 ${count} 条资料使用`, { name: `仍被 ${count} 条资料使用` });
+  }
+  db.prepare(`DELETE FROM ${config.table} WHERE name = ?`).run(current.name);
+}
+
+function uniquePartTypeId(db, name) {
+  const base = `pt-${Date.now().toString(36)}`;
+  let id = base;
+  let suffix = 2;
+  while (db.prepare("SELECT 1 FROM part_types WHERE id = ?").get(id)) id = `${base}-${suffix++}`;
+  return id;
+}
+
+function createPartTypeItem(db, payload) {
+  const name = String(payload.name ?? "").trim();
+  if (!name) throw httpError(422, "请填写名称", { name: "请填写名称" });
+  if (db.prepare("SELECT 1 FROM part_types WHERE name = ?").get(name)) throw httpError(409, "件类已存在", { name: "件类已存在" });
+  const system = String(payload.system ?? "").trim();
+  const sortOrder = db.prepare("SELECT COALESCE(MAX(sort_order), 0) + 10 AS next FROM part_types").get().next;
+  const id = uniquePartTypeId(db, name);
+  db.prepare("INSERT INTO part_types (id, name, system, sort_order) VALUES (?, ?, ?, ?)").run(id, name, system, sortOrder);
+  return { id, name, system, sortOrder, usageCount: 0 };
+}
+
+function updatePartTypeItem(db, id, payload) {
+  const current = db.prepare("SELECT * FROM part_types WHERE id = ?").get(id);
+  if (!current) throw httpError(404, "件类不存在");
+  const name = String(payload.name ?? current.name).trim();
+  if (!name) throw httpError(422, "请填写名称", { name: "请填写名称" });
+  const clash = db.prepare("SELECT id FROM part_types WHERE name = ? AND id <> ?").get(name, id);
+  if (clash) throw httpError(409, "件类已存在", { name: "件类已存在" });
+  const system = String(payload.system ?? current.system).trim();
+  db.prepare("UPDATE part_types SET name = ?, system = ? WHERE id = ?").run(name, system, id);
+  const usageCount = db.prepare(`SELECT
+      (SELECT COUNT(*) FROM vehicle_products WHERE part_type_id = ?) +
+      (SELECT COUNT(*) FROM part_set_items WHERE part_type_id = ?) AS count`).get(id, id).count;
+  return { id, name, system, sortOrder: current.sort_order, usageCount };
+}
+
+function deletePartTypeItem(db, id) {
+  const current = db.prepare("SELECT * FROM part_types WHERE id = ?").get(id);
+  if (!current) throw httpError(404, "件类不存在");
+  const usageCount = db.prepare(`SELECT
+      (SELECT COUNT(*) FROM vehicle_products WHERE part_type_id = ?) +
+      (SELECT COUNT(*) FROM part_set_items WHERE part_type_id = ?) AS count`).get(id, id).count;
+  if (usageCount) throw httpError(409, `件类「${current.name}」仍被 ${usageCount} 处引用`, { name: `仍被 ${usageCount} 处引用` });
+  db.prepare("DELETE FROM part_types WHERE id = ?").run(id);
+}
+
+function normalizePartTypeIds(db, list) {
+  const ids = Array.from(new Set(Array.isArray(list) ? list.map((item) => String(item ?? "").trim()).filter(Boolean) : []));
+  return ids.filter((id) => db.prepare("SELECT 1 FROM part_types WHERE id = ?").get(id));
+}
+
+function replacePartSetItems(db, setId, partTypeIds) {
+  const ids = normalizePartTypeIds(db, partTypeIds);
+  db.prepare("DELETE FROM part_set_items WHERE set_id = ?").run(setId);
+  const insert = db.prepare("INSERT INTO part_set_items (set_id, part_type_id, sort_order) VALUES (?, ?, ?)");
+  ids.forEach((partTypeId, index) => insert.run(setId, partTypeId, index + 1));
+  return ids;
+}
+
+function uniquePartSetId(db) {
+  const base = `set-${Date.now().toString(36)}`;
+  let id = base;
+  let suffix = 2;
+  while (db.prepare("SELECT 1 FROM part_sets WHERE id = ?").get(id)) id = `${base}-${suffix++}`;
+  return id;
+}
+
+function createPartSetItem(db, payload) {
+  const name = String(payload.name ?? "").trim();
+  if (!name) throw httpError(422, "请填写名称", { name: "请填写名称" });
+  if (db.prepare("SELECT 1 FROM part_sets WHERE name = ?").get(name)) throw httpError(409, "套餐已存在", { name: "套餐已存在" });
+  const id = uniquePartSetId(db);
+  const note = String(payload.note ?? "").trim();
+  db.prepare("INSERT INTO part_sets (id, name, note) VALUES (?, ?, ?)").run(id, name, note);
+  const partTypeIds = replacePartSetItems(db, id, payload.partTypeIds);
+  return { id, name, note, partTypeIds };
+}
+
+function updatePartSetItem(db, id, payload) {
+  const current = db.prepare("SELECT * FROM part_sets WHERE id = ?").get(id);
+  if (!current) throw httpError(404, "套餐不存在");
+  const name = String(payload.name ?? current.name).trim();
+  if (!name) throw httpError(422, "请填写名称", { name: "请填写名称" });
+  const clash = db.prepare("SELECT id FROM part_sets WHERE name = ? AND id <> ?").get(name, id);
+  if (clash) throw httpError(409, "套餐已存在", { name: "套餐已存在" });
+  const note = String(payload.note ?? current.note).trim();
+  db.prepare("UPDATE part_sets SET name = ?, note = ? WHERE id = ?").run(name, note, id);
+  const partTypeIds = payload.partTypeIds === undefined
+    ? db.prepare("SELECT part_type_id FROM part_set_items WHERE set_id = ? ORDER BY sort_order").all(id).map((row) => row.part_type_id)
+    : replacePartSetItems(db, id, payload.partTypeIds);
+  return { id, name, note, partTypeIds };
+}
+
+function deletePartSetItem(db, id) {
+  const current = db.prepare("SELECT * FROM part_sets WHERE id = ?").get(id);
+  if (!current) throw httpError(404, "套餐不存在");
+  db.prepare("DELETE FROM part_sets WHERE id = ?").run(id);
 }
 
 export function updateGroup(db, groupId, payload = {}) {
@@ -370,6 +604,7 @@ export function updateGroup(db, groupId, payload = {}) {
   }
   db.prepare("UPDATE product_groups SET name = ?, reference = ?, category = ?, updated_at = ? WHERE id = ?")
     .run(name, reference, category, now(), groupId);
+  registerDictionaryValue(db, "categories", category);
   return db.prepare("SELECT id, name, reference, image, note, category FROM product_groups WHERE id = ?").get(groupId);
 }
 
@@ -577,6 +812,7 @@ function resolveGroup(db, group) {
     timestamp,
     timestamp,
   );
+  registerDictionaryValue(db, "categories", group.category);
   return id;
 }
 
@@ -615,6 +851,8 @@ export function createSku(db, payload) {
       timestamp,
       timestamp,
     );
+    registerDictionaryValue(db, "brands", payload.sku.brand);
+    registerDictionaryValue(db, "units", payload.sku.unit);
     replaceRelations(db, skuId, payload.oeNumbers, payload.fitments);
     const created = readSku(db, skuId);
     logActivity(db, { skuId, action: "create", summary: "创建 SKU", after: created });
@@ -651,6 +889,8 @@ export function updateSku(db, skuId, payload) {
       now(),
       skuId,
     );
+    registerDictionaryValue(db, "brands", payload.sku.brand);
+    registerDictionaryValue(db, "units", payload.sku.unit);
     replaceRelations(db, skuId, payload.oeNumbers, payload.fitments);
     const updated = readSku(db, skuId);
     logActivity(db, { skuId, action: "update", summary: "更新 SKU 资料", before: existing, after: updated });

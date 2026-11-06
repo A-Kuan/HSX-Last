@@ -1,9 +1,10 @@
 import { createServer } from "node:http";
 import {
-  addSkuRelation, createDictionaryItem, createSku, createVehicle, deleteDictionaryItem, deleteDraft, deleteSkuRelation,
+  addSkuRelation, createDictionaryItem, createGroup, createSku, createVehicle, deleteDictionaryItem, deleteDraft,
+  deleteGroup, deleteSkuRelation,
   deleteVehicle, exportSkuRows, importSkuRows,
   listActivity, listBrands, listCatalog, listDictionaries, listGroups, listPartTypes, listSkuRelations, listVehicles,
-  lookupVehicleParts, openDatabase, readSku,
+  lookupVehicleParts, mergeGroups, openDatabase, previewGroupMerge, readSku,
   readVehicle, updateDictionaryItem, updateGroup, updateSku, updateStatus, updateVehicle,
 } from "./db.mjs";
 
@@ -83,8 +84,24 @@ export function createApp({ db = openDatabase() } = {}) {
         return noContent(res);
       }
       const groupMatch = pathname.match(/^\/api\/groups\/([^/]+)$/);
+      if (req.method === "POST" && pathname === "/api/groups/merge/preview") {
+        const body = await readJson(req);
+        return json(res, 200, previewGroupMerge(db, body.sourceId, body.targetId));
+      }
+      if (req.method === "POST" && pathname === "/api/groups/merge") {
+        const body = await readJson(req);
+        return json(res, 200, mergeGroups(db, body.sourceId, body.targetId));
+      }
+      if (req.method === "POST" && pathname === "/api/groups") {
+        return json(res, 201, createGroup(db, await readJson(req)));
+      }
       if (req.method === "PUT" && groupMatch) {
         return json(res, 200, updateGroup(db, decodeURIComponent(groupMatch[1]), await readJson(req)));
+      }
+      if (req.method === "DELETE" && groupMatch) {
+        const force = requestUrl.searchParams.get("force") === "1" || requestUrl.searchParams.get("force") === "true";
+        deleteGroup(db, decodeURIComponent(groupMatch[1]), { force });
+        return noContent(res);
       }
       if (req.method === "GET" && pathname === "/api/vehicles") {
         return json(res, 200, { items: listVehicles(db) });

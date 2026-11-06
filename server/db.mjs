@@ -52,9 +52,10 @@ function migrate(db) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_skus_brand_part_no ON skus(brand, part_no COLLATE NOCASE);
     CREATE INDEX IF NOT EXISTS idx_skus_group ON skus(group_id);
     CREATE INDEX IF NOT EXISTS idx_skus_status ON skus(status);
+    DROP INDEX IF EXISTS idx_skus_brand_part_no;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_skus_brand_part_no ON skus(brand, part_no COLLATE NOCASE) WHERE part_no <> '';
     CREATE TABLE IF NOT EXISTS sku_oe_numbers (
       sku_id TEXT NOT NULL REFERENCES skus(id) ON DELETE CASCADE,
       oe_no TEXT NOT NULL,
@@ -63,6 +64,14 @@ function migrate(db) {
       PRIMARY KEY (sku_id, normalized_oe)
     );
     CREATE INDEX IF NOT EXISTS idx_sku_oe_normalized ON sku_oe_numbers(normalized_oe);
+    CREATE TABLE IF NOT EXISTS group_oe_numbers (
+      group_id TEXT NOT NULL REFERENCES product_groups(id) ON DELETE CASCADE,
+      oe_no TEXT NOT NULL,
+      normalized_oe TEXT NOT NULL,
+      is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+      PRIMARY KEY (group_id, normalized_oe)
+    );
+    CREATE INDEX IF NOT EXISTS idx_group_oe_normalized ON group_oe_numbers(normalized_oe);
     CREATE TABLE IF NOT EXISTS sku_fitments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       sku_id TEXT NOT NULL REFERENCES skus(id) ON DELETE CASCADE,
@@ -164,7 +173,27 @@ function migrate(db) {
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS origins (
+      name TEXT PRIMARY KEY,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS channels (
+      name TEXT PRIMARY KEY,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
   `);
+  ensureColumn(db, "product_groups", "position", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "skus", "origin", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "skus", "channel", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "group_oe_numbers", "breakpoint_date", "TEXT NOT NULL DEFAULT ''");
+}
+
+function ensureColumn(db, table, column, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (columns.some((item) => item.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
 const seedPartTypes = [
@@ -182,6 +211,8 @@ const seedPartSets = [
 const seedCategories = ["制动片", "滤清器", "底盘悬挂", "保养件"];
 const seedBrands = ["BOSCH", "MANN", "MAHLE", "TRW", "DELPHI", "MOOG", "ATE", "LEMFÖRDER", "SACHS", "SKF", "VALEO", "DENSO", "NGK", "FEBI", "SWAG"];
 const seedUnits = ["个", "件", "套", "盒"];
+const seedOrigins = ["进口", "国产"];
+const seedChannels = ["4S/服务站", "平行进口", "电商", "批发"];
 
 const seedVehicleGroups = [
   { id: "of-ea839", name: "机油滤清器（纸芯）", reference: "DEMO-FL01", image: "oil-filter.png", category: "滤清器", note: "纸芯式，适配 EA839 3.0T" },
@@ -305,7 +336,15 @@ export function openDatabase(file = process.env.SKU_DB_PATH || resolve("data/sku
   const db = new DatabaseSync(file);
   migrate(db);
   ensureReferenceData(db);
+  ensureGroupOeSeeds(db);
   return db;
+}
+
+/** 把 SKU 上已有的 OE 号上卷到商品组，作为组级 OE 的初始值（幂等）。 */
+function ensureGroupOeSeeds(db) {
+  db.prepare(`INSERT OR IGNORE INTO group_oe_numbers (group_id, oe_no, normalized_oe, is_primary)
+    SELECT s.group_id, o.oe_no, o.normalized_oe, 0
+    FROM sku_oe_numbers o JOIN skus s ON s.id = o.sku_id`).run();
 }
 
 /** Demo fixtures for tests and local walkthroughs. Never called by openDatabase. */
@@ -313,6 +352,7 @@ export function seedDemoData(db) {
   ensureReferenceData(db);
   seed(db);
   seedVehicleCatalog(db);
+  ensureGroupOeSeeds(db);
 }
 
 export function readSku(db, skuId) {
@@ -326,6 +366,8 @@ export function readSku(db, skuId) {
     brand: sku.brand,
     partNo: sku.part_no,
     unit: sku.unit,
+    origin: sku.origin,
+    channel: sku.channel,
     packQuantity: sku.pack_quantity,
     price: sku.price,
     status: sku.status,
@@ -352,8 +394,133 @@ export function listActivity(db, skuId) {
 }
 
 export function listGroups(db) {
-  return db.prepare(`SELECT id, name, reference, image, note, category
-    FROM product_groups ORDER BY name COLLATE NOCASE`).all();
+  const rows = db.prepare(`SELECT g.id, g.name, g.reference, g.image, g.note, g.category, g.position,
+      (SELECT COUNT(*) FROM skus s WHERE s.group_id = g.id) AS skuCount,
+      (SELECT COUNT(*) FROM skus s WHERE s.group_id = g.id AND s.status = 'enabled') AS enabledSkuCount,
+      (SELECT COUNT(*) FROM vehicle_products vp WHERE vp.group_id = g.id) AS vehicleCount
+    FROM product_groups g ORDER BY g.name COLLATE NOCASE`).all();
+  return rows.map((row) => ({ ...row, ...groupOeFields(db, row.id) }));
+}
+
+const normalizeBreakpoint = (value) => {
+  const digits = String(value ?? "").replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  return digits.length >= 8 ? digits.slice(0, 8) : digits;
+};
+
+function groupOeFields(db, groupId) {
+  const items = db.prepare(`SELECT oe_no AS oeNo, breakpoint_date AS breakpointDate, is_primary AS isPrimary
+    FROM group_oe_numbers WHERE group_id = ?`).all(groupId).map((row) => ({
+    oeNo: row.oeNo,
+    breakpointDate: row.breakpointDate || "",
+    isPrimary: Boolean(row.isPrimary),
+  }));
+  const weight = (item) => (item.isPrimary ? Number.MAX_SAFE_INTEGER : (Number(item.breakpointDate) || 0));
+  items.sort((left, right) => weight(right) - weight(left) || left.oeNo.localeCompare(right.oeNo));
+  return { oeItems: items, oeNumbers: items.map((item) => item.oeNo), primaryOe: items[0]?.oeNo || "" };
+}
+
+function groupOeNumbers(db, groupId) {
+  return groupOeFields(db, groupId).oeNumbers;
+}
+
+function groupPrimaryOe(db, groupId) {
+  return groupOeFields(db, groupId).primaryOe;
+}
+
+function replaceGroupOeNumbers(db, groupId, list, primaryOe = "") {
+  db.prepare("DELETE FROM group_oe_numbers WHERE group_id = ?").run(groupId);
+  const insert = db.prepare("INSERT OR IGNORE INTO group_oe_numbers (group_id, oe_no, normalized_oe, is_primary, breakpoint_date) VALUES (?, ?, ?, ?, ?)");
+  const rows = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const display = String((raw && typeof raw === "object" ? raw.oeNo : raw) || "").trim();
+    const normalized = normalizeOe(display);
+    if (!normalized) continue;
+    rows.push({ display, normalized, breakpointDate: normalizeBreakpoint(raw && typeof raw === "object" ? raw.breakpointDate : "") });
+  }
+  const primaryKey = normalizeOe(primaryOe) || rows[0]?.normalized || "";
+  for (const { display, normalized, breakpointDate } of rows) {
+    insert.run(groupId, display, normalized, normalized === primaryKey ? 1 : 0, breakpointDate || "");
+  }
+}
+
+function normalizeGroupInput(payload = {}) {
+  const name = String(payload.name || "").trim();
+  const reference = normalizeCode(payload.reference);
+  const category = String(payload.category || "").trim();
+  const details = {};
+  if (!name) details.name = "请填写商品组名称";
+  if (!reference) details.reference = "请填写参考编码";
+  if (!category) details.category = "请选择配件品类";
+  if (Object.keys(details).length) throw httpError(422, "商品组资料不完整", details);
+  return {
+    name,
+    reference,
+    category,
+    position: String(payload.position || "").trim(),
+    note: String(payload.note || "").trim(),
+    image: String(payload.image || "").trim(),
+  };
+}
+
+function uniqueGroupId(db, reference) {
+  const base = normalizeCode(reference).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || `group-${Date.now()}`;
+  let id = base;
+  let suffix = 2;
+  while (db.prepare("SELECT 1 FROM product_groups WHERE id = ?").get(id)) id = `${base}-${suffix++}`;
+  return id;
+}
+
+export function readGroup(db, groupId) {
+  const row = db.prepare(`SELECT g.id, g.name, g.reference, g.image, g.note, g.category, g.position,
+      (SELECT COUNT(*) FROM skus s WHERE s.group_id = g.id) AS skuCount,
+      (SELECT COUNT(*) FROM skus s WHERE s.group_id = g.id AND s.status = 'enabled') AS enabledSkuCount,
+      (SELECT COUNT(*) FROM vehicle_products vp WHERE vp.group_id = g.id) AS vehicleCount
+    FROM product_groups g WHERE g.id = ?`).get(groupId);
+  return row ? { ...row, ...groupOeFields(db, row.id) } : null;
+}
+
+export function createGroup(db, payload) {
+  const input = normalizeGroupInput(payload);
+  if (db.prepare("SELECT 1 FROM product_groups WHERE reference = ?").get(input.reference)) {
+    throw httpError(409, "参考编码已存在", { reference: "参考编码已存在" });
+  }
+  const id = uniqueGroupId(db, input.reference);
+  const timestamp = now();
+  db.exec("BEGIN");
+  try {
+    db.prepare(`INSERT INTO product_groups (id, name, reference, image, note, category, position, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, input.name, input.reference, input.image || "brake-pads.png", input.note, input.category, input.position, timestamp, timestamp,
+    );
+    replaceGroupOeNumbers(db, id, payload.oeNumbers, payload.primaryOe);
+    registerDictionaryValue(db, "categories", input.category);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return readGroup(db, id);
+}
+
+export function deleteGroup(db, groupId, { force = false } = {}) {
+  const existing = readGroup(db, groupId);
+  if (!existing) return false;
+  if (!force) {
+    if (existing.skuCount > 0) throw httpError(409, `该商品组下还有 ${existing.skuCount} 个 SKU，确认后可连同 SKU 一起删除`, { skuCount: existing.skuCount });
+    if (existing.vehicleCount > 0) throw httpError(409, `该商品组被 ${existing.vehicleCount} 台车型引用，确认后可一并解除`, { vehicleCount: existing.vehicleCount });
+  }
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM skus WHERE group_id = ?").run(groupId);
+    db.prepare("DELETE FROM vehicle_products WHERE group_id = ?").run(groupId);
+    db.prepare("DELETE FROM product_groups WHERE id = ?").run(groupId);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return true;
 }
 
 export function listBrands(db) {
@@ -364,6 +531,8 @@ const DICTIONARY_KINDS = {
   categories: { table: "categories", label: "配件品类", refTable: "product_groups", refColumn: "category" },
   brands: { table: "brands", label: "品牌", refTable: "skus", refColumn: "brand" },
   units: { table: "units", label: "单位", refTable: "skus", refColumn: "unit" },
+  origins: { table: "origins", label: "产地", refTable: "skus", refColumn: "origin" },
+  channels: { table: "channels", label: "渠道", refTable: "skus", refColumn: "channel" },
 };
 
 function httpError(status, message, details) {
@@ -387,6 +556,14 @@ function ensureDictionarySeeds(db) {
   seedUnits.forEach((name, index) => addUnit.run(name, (index + 1) * 10, timestamp));
   db.prepare(`INSERT OR IGNORE INTO units (name, sort_order, created_at)
     SELECT DISTINCT TRIM(unit), 500, ? FROM skus WHERE TRIM(unit) <> ''`).run(timestamp);
+  const addOrigin = db.prepare("INSERT OR IGNORE INTO origins (name, sort_order, created_at) VALUES (?, ?, ?)");
+  seedOrigins.forEach((name, index) => addOrigin.run(name, (index + 1) * 10, timestamp));
+  db.prepare(`INSERT OR IGNORE INTO origins (name, sort_order, created_at)
+    SELECT DISTINCT TRIM(origin), 500, ? FROM skus WHERE TRIM(origin) <> ''`).run(timestamp);
+  const addChannel = db.prepare("INSERT OR IGNORE INTO channels (name, sort_order, created_at) VALUES (?, ?, ?)");
+  seedChannels.forEach((name, index) => addChannel.run(name, (index + 1) * 10, timestamp));
+  db.prepare(`INSERT OR IGNORE INTO channels (name, sort_order, created_at)
+    SELECT DISTINCT TRIM(channel), 500, ? FROM skus WHERE TRIM(channel) <> ''`).run(timestamp);
 }
 
 /** 新增 SKU / 商品组时把没登记过的品牌、单位、品类补进字典，配置中心里就能看到。 */
@@ -410,6 +587,8 @@ export function listDictionaries(db) {
     categories: list("categories", "product_groups", "category"),
     brands: list("brands", "skus", "brand", "nocase"),
     units: list("units", "skus", "unit"),
+    origins: list("origins", "skus", "origin"),
+    channels: list("channels", "skus", "channel"),
     partTypes: partTypes.map((partType) => ({
       ...partType,
       usageCount: db.prepare(`SELECT
@@ -585,8 +764,11 @@ export function updateGroup(db, groupId, payload = {}) {
   const name = String(payload.name ?? existing.name).trim();
   const reference = normalizeCode(payload.reference ?? existing.reference);
   const category = String(payload.category ?? existing.category).trim();
+  const position = payload.position === undefined ? existing.position || "" : String(payload.position).trim();
+  const note = payload.note === undefined ? existing.note : String(payload.note).trim();
+  const image = payload.image === undefined ? existing.image : String(payload.image).trim();
   const details = {};
-  if (!name) details.name = "请填写商品名称";
+  if (!name) details.name = "请填写商品组名称";
   if (!reference) details.reference = "请填写参考编码";
   if (!category) details.category = "请填写配件品类";
   if (Object.keys(details).length) {
@@ -602,10 +784,74 @@ export function updateGroup(db, groupId, payload = {}) {
     error.details = { groupReference: "参考编码已被其他商品组使用" };
     throw error;
   }
-  db.prepare("UPDATE product_groups SET name = ?, reference = ?, category = ?, updated_at = ? WHERE id = ?")
-    .run(name, reference, category, now(), groupId);
-  registerDictionaryValue(db, "categories", category);
-  return db.prepare("SELECT id, name, reference, image, note, category FROM product_groups WHERE id = ?").get(groupId);
+  db.exec("BEGIN");
+  try {
+    db.prepare("UPDATE product_groups SET name = ?, reference = ?, category = ?, position = ?, note = ?, image = ?, updated_at = ? WHERE id = ?")
+      .run(name, reference, category, position, note, image, now(), groupId);
+    if (payload.oeNumbers !== undefined) replaceGroupOeNumbers(db, groupId, payload.oeNumbers, payload.primaryOe);
+    else if (payload.primaryOe) db.prepare("UPDATE group_oe_numbers SET is_primary = CASE WHEN normalized_oe = ? THEN 1 ELSE 0 END WHERE group_id = ?").run(normalizeOe(payload.primaryOe), groupId);
+    registerDictionaryValue(db, "categories", category);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return readGroup(db, groupId);
+}
+
+function groupMergeImpact(db, sourceId, targetId) {
+  const source = readGroup(db, sourceId);
+  const target = readGroup(db, targetId);
+  if (!source) throw httpError(404, "源商品组不存在");
+  if (!target) throw httpError(404, "目标商品组不存在");
+  if (sourceId === targetId) throw httpError(422, "不能合并到自己");
+  const positionMismatch = Boolean(source.position && target.position && source.position !== target.position);
+  const skuCount = db.prepare("SELECT COUNT(*) AS count FROM skus WHERE group_id = ?").get(sourceId).count;
+  const vehicleLinks = db.prepare("SELECT COUNT(*) AS count FROM vehicle_products WHERE group_id = ?").get(sourceId).count;
+  const duplicateLinks = db.prepare(`SELECT COUNT(*) AS count FROM vehicle_products a
+    WHERE a.group_id = ? AND EXISTS (SELECT 1 FROM vehicle_products b WHERE b.group_id = ? AND b.vehicle_id = a.vehicle_id)`)
+    .get(sourceId, targetId).count;
+  const sourceOes = new Set(source.oeNumbers.map((oe) => normalizeOe(oe)));
+  const targetOes = new Set(target.oeNumbers.map((oe) => normalizeOe(oe)));
+  const overlap = [...sourceOes].filter((oe) => targetOes.has(oe)).length;
+  return {
+    source,
+    target,
+    positionMismatch,
+    skuCount,
+    vehicleLinks,
+    duplicateLinks,
+    oeOverlap: overlap,
+    oeUnionCount: new Set([...sourceOes, ...targetOes]).size,
+    canMerge: !positionMismatch,
+  };
+}
+
+export function previewGroupMerge(db, sourceId, targetId) {
+  const { source, target, ...impact } = groupMergeImpact(db, sourceId, targetId);
+  return { source, target, ...impact };
+}
+
+export function mergeGroups(db, sourceId, targetId) {
+  const impact = groupMergeImpact(db, sourceId, targetId);
+  if (!impact.canMerge) {
+    throw httpError(409, `两个组的安装位置不同（${impact.source.position} / ${impact.target.position}），不能合并`, { positionMismatch: true });
+  }
+  db.exec("BEGIN");
+  try {
+    db.prepare("UPDATE skus SET group_id = ?, updated_at = ? WHERE group_id = ?").run(targetId, now(), sourceId);
+    db.prepare(`DELETE FROM vehicle_products WHERE group_id = ? AND vehicle_id IN
+      (SELECT vehicle_id FROM vehicle_products WHERE group_id = ?)`).run(sourceId, targetId);
+    db.prepare("UPDATE vehicle_products SET group_id = ? WHERE group_id = ?").run(targetId, sourceId);
+    db.prepare(`INSERT OR IGNORE INTO group_oe_numbers (group_id, oe_no, normalized_oe, is_primary)
+      SELECT ?, oe_no, normalized_oe, 0 FROM group_oe_numbers WHERE group_id = ?`).run(targetId, sourceId);
+    db.prepare("DELETE FROM product_groups WHERE id = ?").run(sourceId);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return readGroup(db, targetId);
 }
 
 export function exportSkuRows(db) {
@@ -654,6 +900,8 @@ export function listCatalog(db, filters = {}) {
   const status = String(filters.status || "").trim();
   const page = Math.max(Number(filters.page) || 1, 1);
   const pageSize = Math.min(Math.max(Number(filters.pageSize) || 20, 1), 100);
+  const compactSearch = search.replace(/[^a-z0-9]/g, "");
+  const matchesOe = (list) => Boolean(compactSearch) && list.some((oe) => normalizeOe(oe).toLowerCase().includes(compactSearch));
 
   const groupRows = db.prepare("SELECT * FROM product_groups ORDER BY name COLLATE NOCASE").all();
   const skuRows = db.prepare(`SELECT s.*, GROUP_CONCAT(o.oe_no, '||') AS oe_numbers
@@ -663,7 +911,7 @@ export function listCatalog(db, filters = {}) {
   for (const sku of skuRows) {
     const oeNumbers = sku.oe_numbers ? sku.oe_numbers.split("||") : [];
     const matchText = `${sku.id} ${sku.brand} ${sku.part_no} ${oeNumbers.join(" ")}`.toLowerCase();
-    const item = { ...sku, oeNumbers, matchesSearch: !search || matchText.includes(search) };
+    const item = { ...sku, oeNumbers, matchesSearch: !search || matchText.includes(search) || matchesOe(oeNumbers) };
     if (!byGroup.has(sku.group_id)) byGroup.set(sku.group_id, []);
     byGroup.get(sku.group_id).push(item);
   }
@@ -671,9 +919,12 @@ export function listCatalog(db, filters = {}) {
   const matchingGroups = groupRows.flatMap((group) => {
     if (category && group.category !== category) return [];
     const allSkus = byGroup.get(group.id) || [];
-    const groupMatches = !search || `${group.name} ${group.reference} ${group.category}`.toLowerCase().includes(search);
+    const groupOes = groupOeNumbers(db, group.id);
+    const groupMatches = !search
+      || `${group.name} ${group.reference} ${group.category} ${group.position} ${groupOes.join(" ")}`.toLowerCase().includes(search)
+      || matchesOe(groupOes);
     const skus = allSkus.filter((sku) => {
-      const incomplete = !sku.brand || !sku.part_no || !sku.oeNumbers.length;
+      const incomplete = !sku.brand || !sku.oeNumbers.length;
       const statusMatches = !status || (status === "incomplete" ? incomplete : sku.status === status);
       return statusMatches && (groupMatches || sku.matchesSearch);
     });
@@ -696,6 +947,9 @@ export function listCatalog(db, filters = {}) {
     image: group.image,
     note: group.note,
     category: group.category,
+    position: group.position || "",
+    ...groupOeFields(db, group.id),
+    primaryOe: groupPrimaryOe(db, group.id),
     totalSkuCount,
     enabledSkuCount,
     skus: skus.map((sku) => ({
@@ -703,6 +957,8 @@ export function listCatalog(db, filters = {}) {
       brand: sku.brand,
       partNo: sku.part_no,
       unit: sku.unit,
+      origin: sku.origin,
+      channel: sku.channel,
       packQuantity: sku.pack_quantity,
       price: sku.price,
       status: sku.status,
@@ -717,7 +973,7 @@ export function listCatalog(db, filters = {}) {
     COUNT(*) AS allCount,
     SUM(status = 'draft') AS draftCount,
     SUM(status = 'disabled') AS disabledCount,
-    SUM(brand = '' OR part_no = '' OR NOT EXISTS (SELECT 1 FROM sku_oe_numbers o WHERE o.sku_id = skus.id)) AS incompleteCount
+    SUM(brand = '' OR NOT EXISTS (SELECT 1 FROM sku_oe_numbers o WHERE o.sku_id = skus.id)) AS incompleteCount
     FROM skus`).get();
 
   return {
@@ -738,13 +994,12 @@ function validatePayload(payload, { creating }) {
   const sku = payload?.sku || {};
   const group = payload?.group || {};
   if (creating && !normalizeCode(sku.id)) errors.id = "请填写 SKU 编码";
-  if (!group.id && !String(group.name || "").trim()) errors.groupName = "请选择商品组或填写商品名称";
+  if (!group.id && !String(group.name || "").trim()) errors.groupName = "请选择商品组或填写商品组名称";
   if (!group.id && !String(group.reference || "").trim()) errors.groupReference = "请填写商品组参考编码";
   if (!group.id && !String(group.category || "").trim()) errors.category = "请选择配件品类";
-  if (!String(sku.partNo || "").trim()) errors.partNo = "请填写品牌件号";
   if (!String(sku.unit || "").trim()) errors.unit = "请选择基础单位";
   if (!Number.isInteger(Number(sku.packQuantity)) || Number(sku.packQuantity) < 1) errors.packQuantity = "包装数量必须为正整数";
-  if (!Number.isFinite(Number(sku.price)) || Number(sku.price) < 0) errors.price = "销售价不能小于 0";
+  if (String(sku.price ?? "").trim() !== "" && (!Number.isFinite(Number(sku.price)) || Number(sku.price) < 0)) errors.price = "销售价不能小于 0";
   const oeNumbers = (payload?.oeNumbers || []).map((item) => String(item).trim()).filter(Boolean);
   if (!oeNumbers.length) errors.oeNumbers = "至少填写一个 OE 号";
   if (Object.keys(errors).length) {
@@ -837,15 +1092,17 @@ export function createSku(db, payload) {
   try {
     const groupId = resolveGroup(db, payload.group);
     const timestamp = now();
-    db.prepare(`INSERT INTO skus (id, group_id, brand, part_no, unit, pack_quantity, price, status, note, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    db.prepare(`INSERT INTO skus (id, group_id, brand, part_no, unit, origin, channel, pack_quantity, price, status, note, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       skuId,
       groupId,
       String(payload.sku.brand || "").trim(),
       String(payload.sku.partNo).trim(),
       String(payload.sku.unit).trim(),
+      String(payload.sku.origin || "").trim(),
+      String(payload.sku.channel || "").trim(),
       Number(payload.sku.packQuantity),
-      Number(payload.sku.price),
+      payload.sku.price === "" || payload.sku.price === undefined || payload.sku.price === null ? 0 : Number(payload.sku.price),
       ["draft", "enabled", "disabled"].includes(payload.sku.status) ? payload.sku.status : "draft",
       String(payload.sku.note || "").trim(),
       timestamp,
@@ -853,6 +1110,8 @@ export function createSku(db, payload) {
     );
     registerDictionaryValue(db, "brands", payload.sku.brand);
     registerDictionaryValue(db, "units", payload.sku.unit);
+    registerDictionaryValue(db, "origins", payload.sku.origin);
+    registerDictionaryValue(db, "channels", payload.sku.channel);
     replaceRelations(db, skuId, payload.oeNumbers, payload.fitments);
     const created = readSku(db, skuId);
     logActivity(db, { skuId, action: "create", summary: "创建 SKU", after: created });
@@ -876,14 +1135,16 @@ export function updateSku(db, skuId, payload) {
   db.exec("SAVEPOINT update_sku");
   try {
     const groupId = resolveGroup(db, payload.group);
-    db.prepare(`UPDATE skus SET group_id = ?, brand = ?, part_no = ?, unit = ?, pack_quantity = ?, price = ?, status = ?, note = ?, updated_at = ?
+    db.prepare(`UPDATE skus SET group_id = ?, brand = ?, part_no = ?, unit = ?, origin = ?, channel = ?, pack_quantity = ?, price = ?, status = ?, note = ?, updated_at = ?
       WHERE id = ?`).run(
       groupId,
       String(payload.sku.brand || "").trim(),
       String(payload.sku.partNo).trim(),
       String(payload.sku.unit).trim(),
+      String(payload.sku.origin || "").trim(),
+      String(payload.sku.channel || "").trim(),
       Number(payload.sku.packQuantity),
-      Number(payload.sku.price),
+      payload.sku.price === "" || payload.sku.price === undefined || payload.sku.price === null ? 0 : Number(payload.sku.price),
       ["draft", "enabled", "disabled"].includes(payload.sku.status) ? payload.sku.status : existing.status,
       String(payload.sku.note || "").trim(),
       now(),
@@ -891,6 +1152,8 @@ export function updateSku(db, skuId, payload) {
     );
     registerDictionaryValue(db, "brands", payload.sku.brand);
     registerDictionaryValue(db, "units", payload.sku.unit);
+    registerDictionaryValue(db, "origins", payload.sku.origin);
+    registerDictionaryValue(db, "channels", payload.sku.channel);
     replaceRelations(db, skuId, payload.oeNumbers, payload.fitments);
     const updated = readSku(db, skuId);
     logActivity(db, { skuId, action: "update", summary: "更新 SKU 资料", before: existing, after: updated });
@@ -1059,6 +1322,8 @@ function groupSkus(db, groupId) {
     brand: sku.brand,
     partNo: sku.part_no,
     unit: sku.unit,
+    origin: sku.origin,
+    channel: sku.channel,
     packQuantity: sku.pack_quantity,
     price: sku.price,
     status: sku.status,

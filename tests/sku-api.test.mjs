@@ -38,7 +38,8 @@ test("catalog returns persisted SKU groups without inventory fields", async () =
     assert.equal(body.groups[0].skus[0].id, "DEMO-BP01-001");
     assert.equal("inventory" in body.groups[0].skus[0], false);
     assert.equal("bin" in body.groups[0].skus[0], false);
-    assert.equal(body.groups[0].skus.length, 1);
+    // OE 搜索命中整个商品组：同一个件的所有品牌都会列出来
+    assert.equal(body.groups[0].skus.length, 3);
     assert.equal(body.groups[0].totalSkuCount, 3);
     assert.equal(body.groups[0].enabledSkuCount, 3);
     const groups = await request(base, "/api/groups");
@@ -198,6 +199,210 @@ test("product group fields can be edited and brands are listed", async () => {
   });
 });
 
+test("groups can be created, updated and deleted when unused", async () => {
+  await withApi(async (base) => {
+    const created = await request(base, "/api/groups", {
+      method: "POST",
+      body: JSON.stringify({ name: "空气滤清器", reference: "DEMO-AF02", category: "滤清器", note: "方型滤芯" }),
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.skuCount, 0);
+    assert.equal(created.body.vehicleCount, 0);
+    assert.equal(created.body.note, "方型滤芯");
+
+    const duplicate = await request(base, "/api/groups", {
+      method: "POST",
+      body: JSON.stringify({ name: "重复", reference: "DEMO-AF02", category: "滤清器" }),
+    });
+    assert.equal(duplicate.response.status, 409);
+
+    const invalid = await request(base, "/api/groups", { method: "POST", body: JSON.stringify({ name: "", reference: "" }) });
+    assert.equal(invalid.response.status, 422);
+    assert.ok(invalid.body.details.name);
+    assert.ok(invalid.body.details.category);
+
+    const updated = await request(base, `/api/groups/${created.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name: "空气滤清器（方型）", reference: "DEMO-AF02", category: "滤清器", note: "已核实" }),
+    });
+    assert.equal(updated.response.status, 200);
+    assert.equal(updated.body.name, "空气滤清器（方型）");
+    assert.equal(updated.body.note, "已核实");
+
+    const removed = await request(base, `/api/groups/${created.body.id}`, { method: "DELETE" });
+    assert.equal(removed.response.status, 204);
+
+    const blocked = await request(base, "/api/groups/filter", { method: "DELETE" });
+    assert.equal(blocked.response.status, 409);
+    assert.match(blocked.body.error, /SKU/);
+  });
+});
+
+test("group oe numbers drive merge previews and merging", async () => {
+  await withApi(async (base) => {
+    const left = await request(base, "/api/groups", {
+      method: "POST",
+      body: JSON.stringify({ name: "摆臂 A", reference: "G-A", category: "底盘悬挂", position: "左", oeNumbers: ["8K0 407 151"] }),
+    });
+    assert.equal(left.response.status, 201);
+    assert.deepEqual(left.body.oeNumbers, ["8K0 407 151"]);
+    const right = await request(base, "/api/groups", {
+      method: "POST",
+      body: JSON.stringify({ name: "摆臂 B", reference: "G-B", category: "底盘悬挂", position: "右", oeNumbers: ["8K0 407 152"] }),
+    });
+
+    await request(base, "/api/skus", {
+      method: "POST",
+      body: JSON.stringify({
+        group: { id: left.body.id },
+        sku: { id: "DEMO-MA-001", brand: "TRW", partNo: "JTC-1", unit: "个", packQuantity: 1, price: 100, status: "draft" },
+        oeNumbers: ["8K0 407 151"],
+        fitments: [],
+      }),
+    });
+
+    const mismatch = await request(base, "/api/groups/merge/preview", {
+      method: "POST", body: JSON.stringify({ sourceId: left.body.id, targetId: right.body.id }),
+    });
+    assert.equal(mismatch.body.positionMismatch, true);
+    assert.equal(mismatch.body.canMerge, false);
+    const blocked = await request(base, "/api/groups/merge", {
+      method: "POST", body: JSON.stringify({ sourceId: left.body.id, targetId: right.body.id }),
+    });
+    assert.equal(blocked.response.status, 409);
+
+    const extra = await request(base, "/api/groups", {
+      method: "POST",
+      body: JSON.stringify({ name: "摆臂 A2", reference: "G-A2", category: "底盘悬挂", position: "左", oeNumbers: ["8K0 407 151", "8K0 407 153"] }),
+    });
+    const preview = await request(base, "/api/groups/merge/preview", {
+      method: "POST", body: JSON.stringify({ sourceId: extra.body.id, targetId: left.body.id }),
+    });
+    assert.equal(preview.body.canMerge, true);
+    assert.equal(preview.body.oeOverlap, 1);
+
+    const merged = await request(base, "/api/groups/merge", {
+      method: "POST", body: JSON.stringify({ sourceId: extra.body.id, targetId: left.body.id }),
+    });
+    assert.equal(merged.response.status, 200);
+    assert.deepEqual([...merged.body.oeNumbers].sort(), ["8K0 407 151", "8K0 407 153"]);
+    const after = await request(base, "/api/groups");
+    assert.equal(after.body.items.some((group) => group.reference === "G-A2"), false);
+    assert.equal(after.body.items.find((group) => group.reference === "G-A").skuCount, 1);
+  });
+});
+
+test("group oe numbers are searchable and one can be primary", async () => {
+  await withApi(async (base) => {
+    const created = await request(base, "/api/groups", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "机油滤清器 EA888", reference: "G-OE", category: "滤清器", position: "发动机",
+        oeNumbers: ["06L 115 562 B", "06L 115 466 C", "06L 115 562 E"], primaryOe: "06L 115 562 E",
+      }),
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.primaryOe, "06L 115 562 E");
+    assert.equal(created.body.oeNumbers.length, 3);
+
+    await request(base, "/api/skus", {
+      method: "POST",
+      body: JSON.stringify({
+        group: { id: created.body.id },
+        sku: { id: "DEMO-OE-001", brand: "MANN", partNo: "HU 6006 z", unit: "个", packQuantity: 1, price: 60, status: "draft" },
+        oeNumbers: ["06L 115 562 B"],
+        fitments: [],
+      }),
+    });
+
+    const withoutSpaces = await request(base, "/api/catalog?search=06L115466C");
+    assert.equal(withoutSpaces.body.groups.length, 1);
+    assert.equal(withoutSpaces.body.groups[0].reference, "G-OE");
+    const withSpaces = await request(base, "/api/catalog?search=06L%20115%20466%20C");
+    assert.equal(withSpaces.body.groups.length, 1);
+
+    const switched = await request(base, `/api/groups/${created.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ primaryOe: "06L 115 562 B" }),
+    });
+    assert.equal(switched.body.primaryOe, "06L 115 562 B");
+  });
+});
+
+test("sku origin and channel are stored and registered in the dictionary", async () => {
+  await withApi(async (base) => {
+    const created = await request(base, "/api/skus", {
+      method: "POST",
+      body: JSON.stringify({
+        group: { name: "打气泵", reference: "DEMO-PUMP", category: "保养件" },
+        sku: { id: "DEMO-PUMP-001", brand: "CONTINENTAL", partNo: "CONT-001", unit: "个", origin: "进口", channel: "4S/服务站", packQuantity: 1, price: 480, status: "draft" },
+        oeNumbers: ["06L 115 562 E"],
+        fitments: [],
+      }),
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.origin, "进口");
+    assert.equal(created.body.channel, "4S/服务站");
+
+    const catalog = await request(base, "/api/catalog?search=CONT-001");
+    const sku = catalog.body.groups[0].skus[0];
+    assert.equal(sku.origin, "进口");
+    assert.equal(sku.channel, "4S/服务站");
+
+    const updated = await request(base, "/api/skus/DEMO-PUMP-001", {
+      method: "PUT",
+      body: JSON.stringify({
+        group: { id: created.body.group.id },
+        sku: { id: "DEMO-PUMP-001", brand: "CONTINENTAL", partNo: "CONT-001", unit: "个", origin: "国产", channel: "电商", packQuantity: 1, price: 480, status: "draft" },
+        oeNumbers: ["06L 115 562 E"],
+        fitments: [],
+      }),
+    });
+    assert.equal(updated.body.origin, "国产");
+    assert.equal(updated.body.channel, "电商");
+
+    const dictionaries = await request(base, "/api/dictionaries");
+    assert.ok(dictionaries.body.origins.some((item) => item.name === "国产"));
+    assert.ok(dictionaries.body.channels.some((item) => item.name === "电商"));
+  });
+});
+test("OEM skus may omit the brand part number and the price", async () => {
+  await withApi(async (base) => {
+    const payload = (id) => ({
+      group: { name: "机油滤清器", reference: "DEMO-OEM", category: "滤清器" },
+      sku: { id, brand: "原厂", partNo: "", unit: "个", origin: "进口", channel: "进口大众", packQuantity: 1, status: "draft" },
+      oeNumbers: ["06L 115 562 B"],
+      fitments: [],
+    });
+    const first = await request(base, "/api/skus", { method: "POST", body: JSON.stringify(payload("OEM-001")) });
+    assert.equal(first.response.status, 201);
+    assert.equal(first.body.partNo, "");
+    assert.equal(first.body.price, 0);
+
+    const second = await request(base, "/api/skus", { method: "POST", body: JSON.stringify(payload("OEM-002")) });
+    assert.equal(second.response.status, 201);
+
+    const catalog = await request(base, "/api/catalog?search=06L115562B");
+    assert.equal(catalog.body.groups.length, 1);
+    assert.equal(catalog.body.groups[0].skus.length, 2);
+  });
+});
+test("group delete cascades only after explicit confirmation", async () => {
+  await withApi(async (base) => {
+    const blocked = await request(base, "/api/groups/brake", { method: "DELETE" });
+    assert.equal(blocked.response.status, 409);
+    assert.ok(blocked.body.details.skuCount > 0);
+
+    const forced = await request(base, "/api/groups/brake?force=1", { method: "DELETE" });
+    assert.equal(forced.response.status, 204);
+
+    const catalog = await request(base, "/api/catalog");
+    assert.equal(catalog.body.groups.some((group) => group.reference === "DEMO-BP01"), false);
+    assert.equal((await request(base, "/api/skus/DEMO-BP01-001")).response.status, 404);
+    const groups = await request(base, "/api/groups");
+    assert.equal(groups.body.items.some((group) => group.reference === "DEMO-BP01"), false);
+  });
+});
 test("create, update and status changes persist", async () => {
   await withApi(async (base) => {
     const payload = {
@@ -293,7 +498,7 @@ test("CSV-shaped import previews atomically and export returns SKU data", async 
     assert.equal(exported.response.status, 200);
     assert.equal(exported.body.items.some((item) => item.id === "IMPORT-001" && item.oeNumbers[0] === "17801-0T020"), true);
 
-    const invalidRows = [{ ...firstRow, sku: { ...firstRow.sku, id: "IMPORT-003", partNo: "C 27009 IMPORT 3" } }, { ...firstRow, sku: { ...firstRow.sku, id: "IMPORT-004", partNo: "" } }];
+    const invalidRows = [{ ...firstRow, sku: { ...firstRow.sku, id: "IMPORT-003", partNo: "C 27009 IMPORT 3" } }, { ...firstRow, sku: { ...firstRow.sku, id: "IMPORT-004", partNo: "", unit: "" } }];
     const rejected = await request(base, "/api/import", { method: "POST", body: JSON.stringify({ rows: invalidRows, mode: "insert" }) });
     assert.equal(rejected.response.status, 422);
     assert.equal(rejected.body.committed, false);

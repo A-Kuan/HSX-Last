@@ -11,3 +11,7 @@ data/backups/
 design-qa.md
 public/qa.html
 public/assets/reference-default.png
+
+# 本地账号与临时文件
+zpy_user.txt
+oe-preview.jpg

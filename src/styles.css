@@ -734,3 +734,66 @@ kbd { border: 1px solid var(--line); border-radius: 4px; background: white; padd
 
 .workbench .wb-category > .search-select { margin-top: 6px; }
 .workbench .wb-category > input { margin-top: 8px; }
+
+/* 商品组：OE 与合并 */
+.group-oe { display: flex; flex-direction: column; gap: 8px; }
+.group-oe-input { display: flex; gap: 8px; }
+.group-oe-input input { flex: 1; height: 34px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 10px; }
+.group-oe-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.group-oe-chips > span { display: inline-flex; align-items: center; gap: 6px; background: #f0f4fb; border: 1px solid #e0e7f2; border-radius: 6px; padding: 4px 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.group-oe-chips button { border: 0; background: transparent; padding: 0; display: inline-flex; color: #667085; }
+.group-oe-chips svg { width: 12px; height: 12px; }
+.group-merge { width: min(520px, calc(100vw - 32px)); }
+.group-merge-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.group-merge-fields small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.group-merge-preview { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 12px; }
+.group-merge-preview > div { display: flex; flex-direction: column; gap: 2px; }
+.group-merge-preview span { color: var(--muted); font-size: 11px; }
+.group-merge-preview strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.group-merge-preview .dict-error { grid-column: 1 / -1; margin: 0; }
+
+.wb-oe-conflict { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; padding: 6px 10px; border: 1px solid #fde2b8; background: #fffaf0; border-radius: 6px; color: #8a4b00; font-size: 12px; }
+.wb-oe-conflict .text-button { color: #8a4b00; text-decoration: underline; }
+
+.group-oe-chips > span.is-primary { background: #e8f0ff; border-color: #b9d1ff; }
+.group-oe-chips em { font-style: normal; font-size: 10px; color: #fff; background: var(--blue); border-radius: 3px; padding: 1px 4px; }
+.group-oe-chips button[title="设为主号"] { color: #98a2b3; font-size: 11px; }
+
+.workbench .wb-sku>.form-grid label:has([aria-label="产地"]){grid-column:1;grid-row:5}
+.workbench .wb-sku>.form-grid label:has([aria-label="渠道"]){grid-column:2;grid-row:4}
+
+.workbench .wb-sku>.form-grid label:has([aria-label="基础单位"]){grid-column:1;grid-row:4}
+.workbench .wb-sku>.form-grid label:has([aria-label="资料状态"]){grid-column:2;grid-row:3}
+
+/* 右列 label 宽度统一，避免「资料状态」比上下两行多出一截 */
+.workbench .wb-sku>.form-grid label:has([aria-label="资料状态"]),
+.workbench .wb-sku>.form-grid label:has([aria-label="渠道"]){grid-template-columns:100px minmax(0,1fr)}
+
+.group-oe-chips button.group-oe-primary { color: #b9c2d0; font-size: 13px; line-height: 1; }
+.group-oe-chips button.group-oe-primary:hover { color: var(--blue); }
+
+/* 组级 OE 条（SKU 列表内） */
+.group-oe-strip { display: flex; gap: 10px; align-items: flex-start; padding: 10px 16px; background: #fbfcfe; border-top: 1px solid var(--line); }
+.group-oe-label { flex: none; color: var(--muted); font-size: 12px; line-height: 22px; }
+.group-oe-strip .group-oe-chips { margin: 0; }
+.group-oe-strip .group-oe-chips > span { font-size: 12px; padding: 3px 8px; }
+
+.group-oe-date { width: 190px; height: 34px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 10px; }
+.group-oe-chips small.oe-year { color: #8a93a3; font-size: 11px; margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+/* 组级 OE 条：现行优先，历史折叠 */
+.group-oe-strip { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: center; padding: 10px 16px; background: #fbfcfe; border-top: 1px solid var(--line); }
+.group-oe-label { color: var(--muted); font-size: 12px; }
+.group-oe-current { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.oe-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: #fff; border-radius: 5px; padding: 3px 8px; font-size: 12px; font-variant-numeric: tabular-nums; color: #344054; }
+.oe-chip.is-primary { border-color: var(--blue); background: var(--blue-soft); color: var(--blue-dark); font-weight: 600; }
+.oe-chip em { font-style: normal; font-size: 10px; color: #fff; background: var(--blue); border-radius: 3px; padding: 1px 4px; }
+.oe-state { color: #0db87a; font-size: 11px; }
+.oe-chip.is-history { color: #667085; background: #f7f9fb; border-color: #e3e8ef; }
+.oe-chip.is-history small { color: #98a2b3; font-size: 11px; margin-left: 2px; }
+.oe-history-toggle { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: var(--blue); font-size: 12px; padding: 4px 2px; }
+.oe-history-toggle svg { width: 12px; height: 12px; }
+.group-oe-history { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; }
+
+.group-delete-impact { margin: 0 0 16px; padding-left: 18px; color: #344054; font-size: 13px; line-height: 1.7; }
+.group-delete-impact li { list-style: disc; }

@@ -8,6 +8,8 @@ const TABS = [
   { key: "partSets", label: "套餐", path: "part-sets", noun: "套餐" },
   { key: "brands", label: "品牌", path: "brands", noun: "品牌" },
   { key: "units", label: "单位", path: "units", noun: "单位" },
+  { key: "origins", label: "产地", path: "origins", noun: "产地" },
+  { key: "channels", label: "渠道", path: "channels", noun: "渠道" },
 ];
 
 const emptyEditor = () => ({ mode: "create", id: "", name: "", system: "", note: "", partTypeIds: [] });

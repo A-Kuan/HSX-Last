@@ -160,6 +160,7 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_sku_relations_to ON sku_relations(to_sku_id);
     CREATE TABLE IF NOT EXISTS categories (
       name TEXT PRIMARY KEY,
+      prefix TEXT NOT NULL DEFAULT '',
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
@@ -188,6 +189,7 @@ function migrate(db) {
   ensureColumn(db, "skus", "origin", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "skus", "channel", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "group_oe_numbers", "breakpoint_date", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "categories", "prefix", "TEXT NOT NULL DEFAULT ''");
 }
 
 function ensureColumn(db, table, column, definition) {
@@ -208,7 +210,7 @@ const seedPartSets = [
   ["silv", "四滤", "三滤再加燃油滤清器", [["oil-filter", 1], ["air-filter", 2], ["cabin-filter", 3], ["fuel-filter", 4]]],
 ];
 
-const seedCategories = ["制动片", "滤清器", "底盘悬挂", "保养件"];
+const seedCategories = [["制动片", "ZD"], ["滤清器", "LX"], ["底盘悬挂", "DP"], ["保养件", "BY"]];
 const seedBrands = ["BOSCH", "MANN", "MAHLE", "TRW", "DELPHI", "MOOG", "ATE", "LEMFÖRDER", "SACHS", "SKF", "VALEO", "DENSO", "NGK", "FEBI", "SWAG"];
 const seedUnits = ["个", "件", "套", "盒"];
 const seedOrigins = ["进口", "国产"];
@@ -535,6 +537,10 @@ const DICTIONARY_KINDS = {
   channels: { table: "channels", label: "渠道", refTable: "skus", refColumn: "channel" },
 };
 
+function normalizePrefix(value) {
+  return String(value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+}
+
 function httpError(status, message, details) {
   const error = new Error(message);
   error.status = status;
@@ -544,10 +550,12 @@ function httpError(status, message, details) {
 
 function ensureDictionarySeeds(db) {
   const timestamp = now();
-  const addCategory = db.prepare("INSERT OR IGNORE INTO categories (name, sort_order, created_at) VALUES (?, ?, ?)");
-  seedCategories.forEach((name, index) => addCategory.run(name, (index + 1) * 10, timestamp));
+  const addCategory = db.prepare("INSERT OR IGNORE INTO categories (name, prefix, sort_order, created_at) VALUES (?, ?, ?, ?)");
+  seedCategories.forEach(([name, prefix], index) => addCategory.run(name, prefix, (index + 1) * 10, timestamp));
   db.prepare(`INSERT OR IGNORE INTO categories (name, sort_order, created_at)
     SELECT DISTINCT TRIM(category), 500, ? FROM product_groups WHERE TRIM(category) <> ''`).run(timestamp);
+  const backfillPrefix = db.prepare("UPDATE categories SET prefix = ? WHERE name = ? AND prefix = ''");
+  for (const [name, prefix] of seedCategories) backfillPrefix.run(prefix, name);
   const addBrand = db.prepare("INSERT OR IGNORE INTO brands (name, sort_order, created_at) VALUES (?, ?, ?)");
   seedBrands.forEach((name, index) => addBrand.run(name, (index + 1) * 10, timestamp));
   db.prepare(`INSERT OR IGNORE INTO brands (name, sort_order, created_at)
@@ -584,7 +592,9 @@ export function listDictionaries(db) {
     FROM ${table} d ORDER BY d.sort_order, d.name${collate ? " COLLATE NOCASE" : ""}`).all();
   const { items: partTypes, sets: partSets } = listPartTypes(db);
   return {
-    categories: list("categories", "product_groups", "category"),
+    categories: db.prepare(`SELECT c.name, c.prefix, c.sort_order AS sortOrder,
+        (SELECT COUNT(*) FROM product_groups g WHERE g.category = c.name) AS usageCount
+      FROM categories c ORDER BY c.sort_order, c.name`).all(),
     brands: list("brands", "skus", "brand", "nocase"),
     units: list("units", "skus", "unit"),
     origins: list("origins", "skus", "origin"),
@@ -611,6 +621,11 @@ export function createDictionaryItem(db, kind, payload = {}) {
     throw httpError(409, `${config.label}已存在`, { name: `${config.label}已存在` });
   }
   const sortOrder = db.prepare(`SELECT COALESCE(MAX(sort_order), 0) + 10 AS next FROM ${config.table}`).get().next;
+  if (kind === "categories") {
+    const prefix = normalizePrefix(payload.prefix);
+    db.prepare("INSERT INTO categories (name, prefix, sort_order, created_at) VALUES (?, ?, ?, ?)").run(name, prefix, sortOrder, now());
+    return { name, prefix, sortOrder, usageCount: 0 };
+  }
   db.prepare(`INSERT INTO ${config.table} (name, sort_order, created_at) VALUES (?, ?, ?)`).run(name, sortOrder, now());
   return { name, sortOrder, usageCount: 0 };
 }
@@ -625,6 +640,11 @@ export function updateDictionaryItem(db, kind, id, payload = {}) {
   const name = String(payload.name ?? current.name).trim();
   if (!name) throw httpError(422, "请填写名称", { name: "请填写名称" });
   if (name === current.name) {
+    if (kind === "categories" && payload.prefix !== undefined) {
+      const prefix = normalizePrefix(payload.prefix);
+      db.prepare("UPDATE categories SET prefix = ? WHERE name = ?").run(prefix, name);
+      return { name, prefix, sortOrder: current.sort_order, usageCount: countDictionaryUsage(db, config, name) };
+    }
     return { name, sortOrder: current.sort_order, usageCount: countDictionaryUsage(db, config, name) };
   }
   if (db.prepare(`SELECT 1 FROM ${config.table} WHERE name = ? COLLATE NOCASE`).get(name)) {
@@ -632,13 +652,26 @@ export function updateDictionaryItem(db, kind, id, payload = {}) {
   }
   db.exec("BEGIN");
   try {
-    db.prepare(`INSERT INTO ${config.table} (name, sort_order, created_at) VALUES (?, ?, ?)`).run(name, current.sort_order, current.created_at);
+    if (kind === "categories") {
+      db.prepare("INSERT INTO categories (name, prefix, sort_order, created_at) VALUES (?, ?, ?, ?)")
+        .run(name, normalizePrefix(payload.prefix ?? current.prefix), current.sort_order, current.created_at);
+    } else {
+      db.prepare(`INSERT INTO ${config.table} (name, sort_order, created_at) VALUES (?, ?, ?)`).run(name, current.sort_order, current.created_at);
+    }
     db.prepare(`UPDATE ${config.refTable} SET ${config.refColumn} = ? WHERE ${config.refColumn} = ? COLLATE NOCASE`).run(name, current.name);
     db.prepare(`DELETE FROM ${config.table} WHERE name = ?`).run(current.name);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
+  }
+  if (kind === "categories") {
+    return {
+      name,
+      prefix: normalizePrefix(payload.prefix ?? current.prefix),
+      sortOrder: current.sort_order,
+      usageCount: countDictionaryUsage(db, config, name),
+    };
   }
   return { name, sortOrder: current.sort_order, usageCount: countDictionaryUsage(db, config, name) };
 }

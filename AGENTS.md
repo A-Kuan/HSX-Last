@@ -14,12 +14,14 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 ## Design decisions
 
+- 视觉语言（2026-11 改版，参照用户提供的「虎山行」后台稿）：`src/design.css` 在 `styles.css` 之后覆盖，统一 tokens —— 主色 `#2f6bff`、页面底色 `#f6f7f9`、卡片白底 + `1px #eaedf2` 边框 + 12px 圆角；文字 13px、页标题 24px。外壳为 60px 顶栏：品牌方标 + 「奥联」+ 胶囊导航（选中态浅蓝底）+ 居中全局搜索（Enter 跳到 SKU 商品库并带入筛选）+ 配置中心齿轮；页面 = 标题行（右侧主按钮）+ 胶囊页签 + 筛选行 + 白色表格卡片 + 底部分页（页码按钮）。抽屉头 64px、底部按钮右对齐；弹窗 14px 圆角、Toast 右下角。新增界面一律用这套 tokens，不再写一次性配色。
 - Density: desktop-first, one 1:1 pixel canvas at `100vw × 100vh`. Never reintroduce the old `width:111.11vw` + `transform:scale(.9)` fake-canvas trick — it made every metric oversized and pushed text onto fractional pixels. Base type is 13px, table body 13px, secondary 12px, page title 22px, controls 36px tall, SKU row 52px, group row 64px, thumbnail 46×36.
 - 选择列统一用 `src/components/SearchSelect.jsx`（公用可搜索下拉）：触发器与选项行都按 flex 垂直居中，下拉面板 portal 到 body 用 fixed 定位、相对触发器水平居中，不会被抽屉/弹窗的 overflow 裁掉。商品组、品牌、件类、核实状态、资料状态、基础单位、配件品类筛选、导入方式全部改用它，不再写原生 `<select>`；商品组与品牌常驻搜索框，其余选项超过 5 条自动出现搜索框；「新建商品组」「新增品牌」用 `action: true` 固定落在面板底部。
 - 配置中心（header nav `配置中心`）维护五类基础字典：配件品类、件类、套餐、品牌、单位，分别落在 `categories`、`part_types`/`part_sets`、`brands`、`units`，接口 `GET/POST /api/dictionaries[/:kind[/:id]]`。改名会级联更新商品组/SKU 上的文字，仍被引用的值删除返回 409；新增 SKU 或商品组时自动把新品牌、单位、品类补进字典。前端不再硬编码品牌清单与单位清单，配件品类改为字典下拉（`SearchSelect`，带「新建品类」动作）。
 - SKU 另有两个字典字段：`origin`（产地：进口/国产）与 `channel`（渠道：4S/服务站、平行进口、电商、批发），落在 `origins`/`channels` 表，配置中心同样可维护与级联改名；保存 SKU 时自动补录。二者只做展示与归类，不参与分组判定（分组只看 OE + 安装位置）。
 - 品牌件号与销售价都是可空的：原厂件没有品牌件号，价格未定时留空（存 0，界面显示「面议」）。因此 `skus` 的唯一索引改成部分索引（`WHERE part_no <> ''`），允许同一品牌下多个空件号；「资料待完善」只看品牌与 OE，不再看品牌件号。
 - 商品组（header nav `商品组`）是独立维护的实体：`GET/POST /api/groups`、`PUT/DELETE /api/groups/:id`，字段为名称、参考编码、品类（字典值）、安装位置、说明；图片暂用占位图，不做上传。列表展示 SKU 数与车型引用数；删除时若有 SKU（`skus.group_id`）或车型映射（`vehicle_products`）引用则返回 409 并说明原因。SKU 抽屉里的「新建商品组」保留为快捷入口。
+- 商品组参考编码默认由系统生成：**品类前缀 + 4 位流水号**（如 `LX-0001`），前缀在配置中心「配件品类」页签维护（`categories.prefix`，默认 制动片 ZD / 滤清器 LX / 底盘悬挂 DP / 保养件 BY，没配前缀退回 `G`），逻辑在 `src/groupReference.js`，按前缀各自编号并跳过已占用的号。新建商品组或在 SKU 抽屉里选「新建商品组」时按当前品类自动填好，切换品类会跟着重算；字段仍可改——它同时是 CSV 导入匹配商品组、对接供应商目录的业务键，所以不做成不可见/不可改的内部 ID。
 - 分组的判定依据是**组级 OE 号**（`group_oe_numbers`，启动时从各 SKU 的 OE 上卷，幂等）。「同一个件」的判定口径是 **OE 有交集 + 安装位置一致**（`product_groups.position`）：SKU 抽屉里 OE 命中别的组时给出提示，位置一致才提供「改归该组」；「合并商品组」先预览（移动 SKU 数 / 车型映射 / 重复映射 / OE 重叠与并集）再执行，位置不同直接 409。
 - SKU rows are collapsed on first entry: the initial view lists product groups only. Any active filter (search term, category, status tab) auto-expands the returned groups so matching SKUs are visible; manual expand/collapse is preserved across quiet refreshes. The group's image and name are a single expand toggle (in addition to the caret); the checkbox only selects.
 - Group rows show whole-group totals, not the filtered list: `/api/catalog` returns `totalSkuCount` and `enabledSkuCount` per group, while `skus` stays narrowed by the search/status filter.

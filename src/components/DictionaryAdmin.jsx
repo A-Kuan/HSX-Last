@@ -12,7 +12,7 @@ const TABS = [
   { key: "channels", label: "渠道", path: "channels", noun: "渠道" },
 ];
 
-const emptyEditor = () => ({ mode: "create", id: "", name: "", system: "", note: "", partTypeIds: [] });
+const emptyEditor = () => ({ mode: "create", id: "", name: "", prefix: "", system: "", note: "", partTypeIds: [] });
 
 export function DictionaryAdmin({ onToast }) {
   const [data, setData] = useState(null);
@@ -48,6 +48,9 @@ export function DictionaryAdmin({ onToast }) {
   };
 
   const metaOf = (item) => {
+    if (tab === "categories") {
+      return [item.prefix ? `前缀 ${item.prefix}` : "", item.usageCount ? `${item.usageCount} 条资料` : ""].filter(Boolean).join(" · ");
+    }
     if (tab === "partTypes") {
       return [item.system, item.usageCount ? `${item.usageCount} 处引用` : ""].filter(Boolean).join(" · ");
     }
@@ -64,6 +67,7 @@ export function DictionaryAdmin({ onToast }) {
       mode: "edit",
       id: item.id || item.name,
       name: item.name,
+      prefix: item.prefix || "",
       system: item.system || "",
       note: item.note || "",
       partTypeIds: item.partTypeIds || [],
@@ -78,7 +82,9 @@ export function DictionaryAdmin({ onToast }) {
       ? { name: editor.name, system: editor.system }
       : tab === "partSets"
         ? { name: editor.name, note: editor.note, partTypeIds: editor.partTypeIds }
-        : { name: editor.name };
+        : tab === "categories"
+          ? { name: editor.name, prefix: editor.prefix }
+          : { name: editor.name };
     try {
       if (editor.mode === "create") {
         await api(`/dictionaries/${active.path}`, { method: "POST", body: JSON.stringify(body) });
@@ -120,20 +126,22 @@ export function DictionaryAdmin({ onToast }) {
     <div className="page-title-row">
       <div>
         <h1>配置中心</h1>
-        <nav className="status-tabs" role="tablist">
-          {TABS.map((item) => <button key={item.key} role="tab" type="button" aria-selected={tab === item.key} className={tab === item.key ? "is-active" : ""} onClick={() => switchTab(item.key)}>{item.label}</button>)}
-        </nav>
       </div>
       <div className="page-actions">
         <button className="primary-button" type="button" onClick={() => { setError(""); setConfirming(""); setEditor(emptyEditor()); }}><Plus /> 新增{active.noun}</button>
       </div>
     </div>
+    <nav className="status-tabs" role="tablist">
+      {TABS.map((item) => <button key={item.key} role="tab" type="button" aria-selected={tab === item.key} className={tab === item.key ? "is-active" : ""} onClick={() => switchTab(item.key)}>{item.label}</button>)}
+    </nav>
     <div className="content-area">
       {error ? <p className="dict-error">{error}</p> : null}
       <div className="dict-panel">
+        <div className="dict-head"><span>名称</span><span>操作</span></div>
         {editor ? <div className="dict-editor">
           <div className="dict-editor-fields">
             <input autoFocus value={editor.name} placeholder="名称" aria-label="名称" onChange={(event) => setEditor({ ...editor, name: event.target.value })} />
+            {tab === "categories" ? <input value={editor.prefix} placeholder="编码前缀（如 LX）" aria-label="编码前缀" maxLength={4} onChange={(event) => setEditor({ ...editor, prefix: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) })} /> : null}
             {tab === "partTypes" ? <input value={editor.system} placeholder="系统" aria-label="系统" onChange={(event) => setEditor({ ...editor, system: event.target.value })} /> : null}
             {tab === "partSets" ? <input value={editor.note} placeholder="备注" aria-label="备注" onChange={(event) => setEditor({ ...editor, note: event.target.value })} /> : null}
           </div>

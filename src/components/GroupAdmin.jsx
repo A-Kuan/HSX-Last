@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { api } from "../api.js";
+import { nextGroupReference } from "../groupReference.js";
 import { SearchSelect } from "./SearchSelect.jsx";
 
 const emptyEditor = () => ({ mode: "create", id: "", name: "", reference: "", category: "", position: "", note: "", oeItems: [], primaryOe: "" });
@@ -9,6 +10,7 @@ export function GroupAdmin({ onToast }) {
   const [groups, setGroups] = useState([]);
   const [categories, setCategories] = useState([]);
   const [editor, setEditor] = useState(null);
+  const [autoReference, setAutoReference] = useState(true);
   const [oeInput, setOeInput] = useState("");
   const [oeDate, setOeDate] = useState("");
   const [merge, setMerge] = useState(null);
@@ -48,9 +50,9 @@ export function GroupAdmin({ onToast }) {
     });
   }, [groups, term, category]);
 
-  const startCreate = () => { setError(""); setRemoving(null); setOeInput(""); setEditor(emptyEditor()); };
+  const startCreate = () => { setError(""); setRemoving(null); setOeInput(""); setAutoReference(true); setEditor({ ...emptyEditor(), reference: nextGroupReference(groups, categories, "") }); };
   const startEdit = (group) => {
-    setError(""); setRemoving(null); setOeInput("");
+    setError(""); setRemoving(null); setOeInput(""); setAutoReference(false);
     setEditor({
       mode: "edit", id: group.id, name: group.name, reference: group.reference, category: group.category,
       position: group.position || "", note: group.note || "",
@@ -157,11 +159,12 @@ export function GroupAdmin({ onToast }) {
     <div className="content-area">
       {error ? <p className="dict-error">{error}</p> : null}
       <div className="dict-panel">
+        <div className="dict-head"><span>商品组</span><span>操作</span></div>
         {editor ? <div className="dict-editor">
           <div className="dict-editor-fields">
             <input autoFocus value={editor.name} placeholder="商品组名称" aria-label="商品组名称" onChange={(event) => setEditor({ ...editor, name: event.target.value })} />
-            <input value={editor.reference} placeholder="参考编码" aria-label="参考编码" onChange={(event) => setEditor({ ...editor, reference: event.target.value })} />
-            <SearchSelect value={editor.category} onChange={(value) => setEditor({ ...editor, category: value })} options={categoryOptions} placeholder="选择品类" ariaLabel="配件品类" />
+            <input value={editor.reference} placeholder="参考编码" aria-label="参考编码" onChange={(event) => { setAutoReference(false); setEditor({ ...editor, reference: event.target.value }); }} />
+            <SearchSelect value={editor.category} onChange={(value) => setEditor({ ...editor, category: value, ...(autoReference ? { reference: nextGroupReference(groups, categories, value) } : {}) })} options={categoryOptions} placeholder="选择品类" ariaLabel="配件品类" />
             <input value={editor.position} placeholder="安装位置（左/右/前/后）" aria-label="安装位置" onChange={(event) => setEditor({ ...editor, position: event.target.value })} />
             <input value={editor.note} placeholder="说明" aria-label="说明" onChange={(event) => setEditor({ ...editor, note: event.target.value })} />
           </div>

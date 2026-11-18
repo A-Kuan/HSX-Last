@@ -14,7 +14,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 ## Design decisions
 
-- 视觉语言（2026-11 改版，参照用户提供的「虎山行」后台稿）：`src/design.css` 在 `styles.css` 之后覆盖，统一 tokens —— 主色 `#2f6bff`、页面底色 `#f6f7f9`、卡片白底 + `1px #eaedf2` 边框 + 12px 圆角；文字 13px、页标题 24px。外壳为 60px 顶栏：品牌方标 + 「奥联」+ 胶囊导航（选中态浅蓝底）+ 居中全局搜索（Enter 跳到 SKU 商品库并带入筛选）+ 配置中心齿轮；页面 = 标题行（右侧主按钮）+ 胶囊页签 + 筛选行 + 白色表格卡片 + 底部分页（页码按钮）。抽屉头 64px、底部按钮右对齐；弹窗 14px 圆角、Toast 右下角。新增界面一律用这套 tokens，不再写一次性配色。
+- 视觉语言（2026-11 改版，参照用户提供的「虎山行」后台稿）：`src/design.css` 在 `styles.css` 之后覆盖，统一 tokens —— 主色 `#2f6bff`、页面底色 `#f6f7f9`、卡片白底 + `1px #eaedf2` 边框 + 12px 圆角；文字 13px、页标题 24px。外壳为 60px 顶栏：胶囊导航（选中态浅蓝底）+ 全局搜索（Enter 跳到 SKU 商品库并带入筛选，位置不限）+ 配置中心齿轮，不要求品牌区；页面 = 标题行（右侧主按钮）+ 胶囊页签 + 筛选行 + 白色表格卡片 + 底部分页（页码按钮）。抽屉头 64px、底部按钮右对齐；弹窗 14px 圆角、Toast 右下角。新增界面一律用这套 tokens，不再写一次性配色。
 - Density: desktop-first, one 1:1 pixel canvas at `100vw × 100vh`. Never reintroduce the old `width:111.11vw` + `transform:scale(.9)` fake-canvas trick — it made every metric oversized and pushed text onto fractional pixels. Base type is 13px, table body 13px, secondary 12px, page title 22px, controls 36px tall, SKU row 52px, group row 64px, thumbnail 46×36.
 - 选择列统一用 `src/components/SearchSelect.jsx`（公用可搜索下拉）：触发器与选项行都按 flex 垂直居中，下拉面板 portal 到 body 用 fixed 定位、相对触发器水平居中，不会被抽屉/弹窗的 overflow 裁掉。商品组、品牌、件类、核实状态、资料状态、基础单位、配件品类筛选、导入方式全部改用它，不再写原生 `<select>`；商品组与品牌常驻搜索框，其余选项超过 5 条自动出现搜索框；「新建商品组」「新增品牌」用 `action: true` 固定落在面板底部。
 - 配置中心（header nav `配置中心`）维护五类基础字典：配件品类、件类、套餐、品牌、单位，分别落在 `categories`、`part_types`/`part_sets`、`brands`、`units`，接口 `GET/POST /api/dictionaries[/:kind[/:id]]`。改名会级联更新商品组/SKU 上的文字，仍被引用的值删除返回 409；新增 SKU 或商品组时自动把新品牌、单位、品类补进字典。前端不再硬编码品牌清单与单位清单，配件品类改为字典下拉（`SearchSelect`，带「新建品类」动作）。

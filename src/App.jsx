@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwise, Car, CaretDown, CaretLeft, CaretRight, Check, CheckCircle,
-  DotsThree, DownloadSimple, FileText, GearSix, MagnifyingGlass, Minus, PencilSimple,
+  DotsThree, DownloadSimple, FileText, MagnifyingGlass, Minus, PencilSimple,
   Plus, Prohibit, Trash, UploadSimple, X,
 } from "@phosphor-icons/react";
 import { api } from "./api.js";
@@ -9,6 +9,7 @@ import { nextGroupReference } from "./groupReference.js";
 import { DictionaryAdmin } from "./components/DictionaryAdmin.jsx";
 import { GroupAdmin } from "./components/GroupAdmin.jsx";
 import { SearchSelect } from "./components/SearchSelect.jsx";
+import { NavBar } from "./components/NavBar.jsx";
 
 const ASSET_BASE = `${import.meta.env.BASE_URL}assets/`;
 const STATUS_LABELS = { draft: "草稿", enabled: "启用", disabled: "停用" };
@@ -113,32 +114,6 @@ function IconButton({ children, label, onClick, disabled = false }) {
 function ProductImage({ group, small = false }) {
   const src = group.image ? `${ASSET_BASE}${group.image}` : `${ASSET_BASE}brake-pads.png`;
   return <img className={`product-image ${small ? "is-small" : ""}`} src={src} alt={group.name} />;
-}
-
-function AppHeader({ view, onView, onSearch }) {
-  const [term, setTerm] = useState("");
-  const submit = () => { const value = term.trim(); if (value) onSearch(value); };
-  return <header className="app-header">
-    <div className="brand-lockup">
-      <span className="brand-mark" aria-hidden="true">奥</span>
-      <strong>奥联</strong>
-      <nav className="app-nav" aria-label="主导航">
-        <button type="button" className={view === "sku" ? "is-active" : ""} aria-current={view === "sku" ? "page" : undefined} onClick={() => onView("sku")}>SKU 商品库</button>
-        <button type="button" className={view === "groups" ? "is-active" : ""} aria-current={view === "groups" ? "page" : undefined} onClick={() => onView("groups")}>商品组</button>
-        <button type="button" className={view === "vehicle" ? "is-active" : ""} aria-current={view === "vehicle" ? "page" : undefined} onClick={() => onView("vehicle")}>车型查询</button>
-        <button type="button" className={view === "vehicles" ? "is-active" : ""} aria-current={view === "vehicles" ? "page" : undefined} onClick={() => onView("vehicles")}>车型库</button>
-        <button type="button" className={view === "config" ? "is-active" : ""} aria-current={view === "config" ? "page" : undefined} onClick={() => onView("config")}>配置中心</button>
-      </nav>
-    </div>
-    <label className="global-search">
-      <MagnifyingGlass />
-      <input value={term} aria-label="全局搜索" placeholder="全局搜索（SKU / OE 号）" onChange={(event) => setTerm(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submit(); }} />
-      <kbd>Enter</kbd>
-    </label>
-    <div className="header-actions">
-      <IconButton label="配置中心" onClick={() => onView("config")}><GearSix /></IconButton>
-    </div>
-  </header>;
 }
 
 function VehicleLookup({ onView }) {
@@ -780,6 +755,7 @@ function BottomBar({ selectedItems, page, totalPages, pageSize, onPage, onBatch,
 
 export function App() {
   const [view, setView] = useState("sku");
+  const [configTab, setConfigTab] = useState("categories");
   const [catalog, setCatalog] = useState({ groups: [], counts: { all: 0, draft: 0, incomplete: 0, disabled: 0 }, categories: [], pagination: { page: 1, pageSize: 20, totalPages: 1 } });
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -832,7 +808,17 @@ export function App() {
     ["disabled", `已停用 (${catalog.counts.disabled})`],
   ];
 
-  return <div className={`app-shell ${view === "sku" ? "" : "is-vehicle"}`}><AppHeader view={view} onView={setView} onSearch={(term) => { setView("sku"); setSearch(term); }} />{view === "groups" ? <GroupAdmin onToast={setToast} /> : view === "vehicles" ? <VehicleAdmin onToast={setToast} /> : view === "vehicle" ? <VehicleLookup onView={setView} /> : view === "config" ? <DictionaryAdmin onToast={setToast} /> : <main className="workspace"><div className="page-title-row"><div><h1>SKU商品库</h1></div><div className="page-actions"><button className="secondary-button" type="button" onClick={() => setImportOpen(true)}><UploadSimple /> 批量导入</button><button className="primary-button" type="button" onClick={() => setEdit({})}><Plus /> 新增SKU</button><IconButton label="刷新商品" onClick={() => load({ quiet: true })}><ArrowClockwise /></IconButton></div></div><nav className="status-tabs" role="tablist">{tabs.map(([value, label]) => <button role="tab" aria-selected={status === value} className={status === value ? "is-active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}</button>)}</nav><FilterBar search={search} setSearch={setSearch} category={category} setCategory={setCategory} categories={catalog.categories} /><div className="content-area">{loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => load()} /> : catalog.groups.length ? <ProductTable groups={catalog.groups} expanded={expanded} setExpanded={setExpanded} selected={selected} setSelected={setSelected} onDetail={(sku, group) => setDetail({ sku, group })} onEdit={(sku, group) => setEdit({ sku, group })} /> : <EmptyState filtered={Boolean(search || category || status)} onClear={() => { setSearch(""); setCategory(""); setStatus(""); }} onAdd={() => setEdit({})} onImport={() => setImportOpen(true)} />}</div></main>}{view === "sku" && <BottomBar selectedItems={selectedItems} page={catalog.pagination.page} totalPages={catalog.pagination.totalPages} pageSize={catalog.pagination.pageSize} onPage={setPage} onBatch={() => setBatchOpen(true)} onClear={() => setSelected(new Set())} onExport={async () => { try { const data = await api("/export"); const ids = new Set(selectedItems.map(({ sku }) => sku.id)); const items = ids.size ? data.items.filter((item) => ids.has(item.id)) : data.items; downloadCsv(`SKU资料-${new Date().toISOString().slice(0, 10)}.csv`, exportRows(items)); setToast(`已导出 ${items.length} 个 SKU`); } catch (exportError) { setToast(exportError.message); } }} />}
+  return <div className={`app-shell ${view === "sku" ? "" : "is-vehicle"}`}><NavBar
+      view={view}
+      counts={catalog.counts}
+      onView={setView}
+      onSearch={(term) => { setView("sku"); setSearch(term); }}
+      onStatus={(value) => { setView("sku"); setStatus(value); }}
+      onCreateSku={() => setEdit({})}
+      onImport={() => setImportOpen(true)}
+      onRefresh={() => load({ quiet: true })}
+      onConfigTab={(key) => { setConfigTab(key); setView("config"); }}
+    />{view === "groups" ? <GroupAdmin onToast={setToast} /> : view === "vehicles" ? <VehicleAdmin onToast={setToast} /> : view === "vehicle" ? <VehicleLookup onView={setView} /> : view === "config" ? <DictionaryAdmin key={configTab} initialTab={configTab} onToast={setToast} /> : <main className="workspace"><div className="page-title-row"><div><h1>SKU商品库</h1></div><div className="page-actions"><button className="secondary-button" type="button" onClick={() => setImportOpen(true)}><UploadSimple /> 批量导入</button><button className="primary-button" type="button" onClick={() => setEdit({})}><Plus /> 新增SKU</button><IconButton label="刷新商品" onClick={() => load({ quiet: true })}><ArrowClockwise /></IconButton></div></div><nav className="status-tabs" role="tablist">{tabs.map(([value, label]) => <button role="tab" aria-selected={status === value} className={status === value ? "is-active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}</button>)}</nav><FilterBar search={search} setSearch={setSearch} category={category} setCategory={setCategory} categories={catalog.categories} /><div className="content-area">{loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => load()} /> : catalog.groups.length ? <ProductTable groups={catalog.groups} expanded={expanded} setExpanded={setExpanded} selected={selected} setSelected={setSelected} onDetail={(sku, group) => setDetail({ sku, group })} onEdit={(sku, group) => setEdit({ sku, group })} /> : <EmptyState filtered={Boolean(search || category || status)} onClear={() => { setSearch(""); setCategory(""); setStatus(""); }} onAdd={() => setEdit({})} onImport={() => setImportOpen(true)} />}</div></main>}{view === "sku" && <BottomBar selectedItems={selectedItems} page={catalog.pagination.page} totalPages={catalog.pagination.totalPages} pageSize={catalog.pagination.pageSize} onPage={setPage} onBatch={() => setBatchOpen(true)} onClear={() => setSelected(new Set())} onExport={async () => { try { const data = await api("/export"); const ids = new Set(selectedItems.map(({ sku }) => sku.id)); const items = ids.size ? data.items.filter((item) => ids.has(item.id)) : data.items; downloadCsv(`SKU资料-${new Date().toISOString().slice(0, 10)}.csv`, exportRows(items)); setToast(`已导出 ${items.length} 个 SKU`); } catch (exportError) { setToast(exportError.message); } }} />}
     {detail && <DetailDrawer selected={detail} onClose={() => setDetail(null)} onEdit={() => { setEdit(detail); setDetail(null); }} />}
     {edit && <EditDrawer selected={edit} groups={groups} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); setToast(edit.sku ? "SKU 资料已更新" : "SKU 已创建"); load({ quiet: true }); }} onDeleted={() => { setEdit(null); setToast("草稿 SKU 已删除"); load({ quiet: true }); }} />}
     {batchOpen && <BatchModal items={selectedItems} onClose={() => setBatchOpen(false)} onConfirm={async (nextStatus, reason) => { await Promise.all(selectedItems.map(({ sku }) => api(`/skus/${encodeURIComponent(sku.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: nextStatus, reason }) }))); setBatchOpen(false); setSelected(new Set()); setToast(`已更新 ${selectedItems.length} 个 SKU`); load({ quiet: true }); }} />}

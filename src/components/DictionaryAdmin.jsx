@@ -14,9 +14,9 @@ const TABS = [
 
 const emptyEditor = () => ({ mode: "create", id: "", name: "", prefix: "", system: "", note: "", partTypeIds: [] });
 
-export function DictionaryAdmin({ onToast }) {
+export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
   const [data, setData] = useState(null);
-  const [tab, setTab] = useState("categories");
+  const [tab, setTab] = useState(initialTab);
   const [editor, setEditor] = useState(null);
   const [confirming, setConfirming] = useState("");
   const [error, setError] = useState("");

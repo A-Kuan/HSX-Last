@@ -1,4 +1,4 @@
-const API_BASE = `${import.meta.env.BASE_URL}api`;
+export const API_BASE = `${import.meta.env.BASE_URL}api`;
 
 export async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {

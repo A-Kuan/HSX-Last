@@ -51,13 +51,14 @@ export function GroupAdmin({ onToast }) {
   }, [groups, term, category]);
 
   const startCreate = () => { setError(""); setRemoving(null); setOeInput(""); setAutoReference(true); setEditor({ ...emptyEditor(), reference: nextGroupReference(groups, categories, "") }); };
+  const closeEditor = () => { setEditor(null); setError(""); setOeInput(""); setOeDate(""); };
   const startEdit = (group) => {
     setError(""); setRemoving(null); setOeInput(""); setAutoReference(false);
     setEditor({
       mode: "edit", id: group.id, name: group.name, reference: group.reference, category: group.category,
       position: group.position || "", note: group.note || "",
       oeItems: (group.oeItems || (group.oeNumbers || []).map((oe) => ({ oeNo: oe, breakpointDate: "" }))).map((item) => ({ ...item })),
-      primaryOe: group.primaryOe || (group.oeNumbers || [])[0] || "",
+      primaryOe: group.primaryOe || "",
     });
   };
 
@@ -83,7 +84,7 @@ export function GroupAdmin({ onToast }) {
       if (!current) return current;
       const exists = current.oeItems.some((item) => oeKey(item.oeNo) === key);
       const oeItems = exists ? current.oeItems : [...current.oeItems, { oeNo: value, breakpointDate: oeDate }];
-      return { ...current, oeItems, primaryOe: current.primaryOe || value };
+      return { ...current, oeItems };
     });
     setOeInput("");
     setOeDate("");
@@ -91,7 +92,7 @@ export function GroupAdmin({ onToast }) {
   const removeOe = (target) => setEditor((current) => {
     if (!current) return current;
     const oeItems = current.oeItems.filter((item) => oeKey(item.oeNo) !== oeKey(target));
-    const primaryOe = oeKey(current.primaryOe) === oeKey(target) ? (oeItems[0]?.oeNo || "") : current.primaryOe;
+    const primaryOe = oeKey(current.primaryOe) === oeKey(target) ? "" : current.primaryOe;
     return { ...current, oeItems, primaryOe };
   });
 
@@ -160,31 +161,10 @@ export function GroupAdmin({ onToast }) {
       {error ? <p className="dict-error">{error}</p> : null}
       <div className="dict-panel">
         <div className="dict-head"><span>商品组</span><span>操作</span></div>
-        {editor ? <div className="dict-editor">
-          <div className="dict-editor-fields">
-            <input autoFocus value={editor.name} placeholder="商品组名称" aria-label="商品组名称" onChange={(event) => setEditor({ ...editor, name: event.target.value })} />
-            <input value={editor.reference} placeholder="参考编码" aria-label="参考编码" onChange={(event) => { setAutoReference(false); setEditor({ ...editor, reference: event.target.value }); }} />
-            <SearchSelect value={editor.category} onChange={(value) => setEditor({ ...editor, category: value, ...(autoReference ? { reference: nextGroupReference(groups, categories, value) } : {}) })} options={categoryOptions} placeholder="选择品类" ariaLabel="配件品类" />
-            <input value={editor.position} placeholder="安装位置（左/右/前/后）" aria-label="安装位置" onChange={(event) => setEditor({ ...editor, position: event.target.value })} />
-            <input value={editor.note} placeholder="说明" aria-label="说明" onChange={(event) => setEditor({ ...editor, note: event.target.value })} />
-          </div>
-          <div className="group-oe">
-            <div className="group-oe-input">
-              <input value={oeInput} placeholder="录入 OE 号，按 Enter 添加" aria-label="录入 OE 号" onChange={(event) => setOeInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addOe(); } }} />
-              <input className="group-oe-date" value={oeDate} placeholder="断点日期 YYYYMMDD（可空）" aria-label="断点日期" onChange={(event) => setOeDate(event.target.value.replace(/[^0-9-]/g, ""))} />
-              <button className="secondary-button" type="button" disabled={!oeInput.trim()} onClick={addOe}>添加</button>
-            </div>
-            {editor.oeItems.length > 0 && <div className="group-oe-chips">{sortOeItems(editor.oeItems, editor.primaryOe).map((item) => { const isPrimary = oeKey(editor.primaryOe) === oeKey(item.oeNo); return <span key={item.oeNo} className={isPrimary ? "is-primary" : ""}>{isPrimary ? <em>主</em> : null}{item.oeNo}{formatDate(item.breakpointDate) ? <small className="oe-year">{formatDate(item.breakpointDate)}</small> : null}{!isPrimary && <button type="button" className="group-oe-primary" title="设为主号" aria-label={`设为主号 ${item.oeNo}`} onClick={() => setEditor({ ...editor, primaryOe: item.oeNo })}>★</button>}<button type="button" aria-label={`移除 OE ${item.oeNo}`} onClick={() => removeOe(item.oeNo)}><X /></button></span>; })}</div>}
-          </div>
-          <div className="dict-editor-actions">
-            <button className="secondary-button" type="button" onClick={() => { setEditor(null); setError(""); }}>取消</button>
-            <button className="primary-button" type="button" disabled={saving || !usable} onClick={save}>{saving ? "保存中..." : "保存"}</button>
-          </div>
-        </div> : null}
         {loading ? null : filtered.map((group) => <div className="dict-row" key={group.id}>
           <div className="dict-main">
             <strong>{group.name}</strong>
-            <small>{[group.reference, group.category, group.position, `${group.skuCount} 个 SKU`, group.vehicleCount ? `${group.vehicleCount} 台车型` : "", group.oeNumbers.length ? (group.oeNumbers.length > 1 ? `OE ${group.primaryOe} 等 ${group.oeNumbers.length} 个` : `OE ${group.primaryOe}`) : ""].filter(Boolean).join(" · ")}</small>
+            <small>{[group.reference, group.category, group.position, `${group.skuCount} 个 SKU`, group.vehicleCount ? `${group.vehicleCount} 台车型` : "", group.oeNumbers.length ? (group.primaryOe ? (group.oeNumbers.length > 1 ? `OE ${group.primaryOe} 等 ${group.oeNumbers.length} 个` : `OE ${group.primaryOe}`) : `组级 OE ${group.oeNumbers.length} 个`) : ""].filter(Boolean).join(" · ")}</small>
           </div>
           <div className="dict-actions">
             <button className="text-button" type="button" onClick={() => startEdit(group)}>编辑</button>
@@ -193,6 +173,71 @@ export function GroupAdmin({ onToast }) {
         </div>)}
       </div>
     </div>
+    {editor ? <div className="overlay drawer-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) closeEditor(); }}>
+      <aside className="edit-drawer dict-drawer group-drawer" role="dialog" aria-modal="true" aria-label={editor.mode === "create" ? "新增商品组" : "编辑商品组"}>
+        <header>
+          <h2>{editor.mode === "create" ? "新增商品组" : "编辑商品组"}</h2>
+          <button className="icon-button" type="button" aria-label="关闭" onClick={closeEditor}><X /></button>
+        </header>
+        <form onSubmit={(event) => { event.preventDefault(); save(); }}>
+          <div className="dict-form">
+            <label className="required">商品组名称
+              <input autoFocus value={editor.name} maxLength={60} placeholder="如 EA839 机油滤芯" onChange={(event) => setEditor({ ...editor, name: event.target.value })} />
+              <span className="char-count">{editor.name.length}/60</span>
+            </label>
+
+            <div className="dict-col-2">
+              <label className="required">参考编码
+                <input value={editor.reference} maxLength={40} onChange={(event) => { setAutoReference(false); setEditor({ ...editor, reference: event.target.value.toUpperCase() }); }} />
+              </label>
+              <label className="required">配件品类
+                <SearchSelect
+                  ariaLabel="配件品类"
+                  value={editor.category}
+                  onChange={(value) => setEditor({ ...editor, category: value, ...(autoReference ? { reference: nextGroupReference(groups, categories, value) } : {}) })}
+                  options={categoryOptions}
+                  placeholder="选择品类"
+                />
+              </label>
+            </div>
+
+            <label>安装位置
+              <input value={editor.position} maxLength={20} placeholder="左 / 右 / 前 / 后" onChange={(event) => setEditor({ ...editor, position: event.target.value })} />
+            </label>
+
+            <label>说明
+              <textarea value={editor.note} maxLength={200} placeholder="选填" onChange={(event) => setEditor({ ...editor, note: event.target.value })} />
+              <span className="char-count">{editor.note.length}/200</span>
+            </label>
+
+            <div className="dict-field">
+              <span className="dict-field-label">OE 号{editor.oeItems.length ? `（${editor.oeItems.length}）` : ""}</span>
+              <div className="group-oe-input">
+                <input value={oeInput} placeholder="录入 OE 号，按 Enter 添加" aria-label="录入 OE 号" onChange={(event) => setOeInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addOe(); } }} />
+                <input className="group-oe-date" value={oeDate} placeholder="断点日期 YYYYMMDD" aria-label="断点日期" onChange={(event) => setOeDate(event.target.value.replace(/[^0-9-]/g, ""))} />
+                <button className="secondary-button" type="button" disabled={!oeInput.trim()} onClick={addOe}>添加</button>
+              </div>
+              {editor.oeItems.length > 0 && <div className="group-oe-chips">{sortOeItems(editor.oeItems, editor.primaryOe).map((item) => {
+                const isPrimary = oeKey(editor.primaryOe) === oeKey(item.oeNo);
+                return <span key={item.oeNo} className={isPrimary ? "is-primary" : ""}>
+                  {isPrimary ? <em>主</em> : null}{item.oeNo}
+                  {formatDate(item.breakpointDate) ? <small className="oe-year">{formatDate(item.breakpointDate)}</small> : null}
+                  {isPrimary ? <button type="button" className="group-oe-primary is-on" title="取消主号" aria-label={`取消主号 ${item.oeNo}`} onClick={() => setEditor({ ...editor, primaryOe: "" })}>★</button> : <button type="button" className="group-oe-primary" title="设为主号" aria-label={`设为主号 ${item.oeNo}`} onClick={() => setEditor({ ...editor, primaryOe: item.oeNo })}>★</button>}
+                  <button type="button" aria-label={`移除 OE ${item.oeNo}`} onClick={() => removeOe(item.oeNo)}><X /></button>
+                </span>;
+              })}</div>}
+            </div>
+          </div>
+
+          {error ? <p className="dict-error">{error}</p> : null}
+
+          <footer>
+            <button className="secondary-button" type="button" onClick={closeEditor}>取消</button>
+            <button className="primary-button" type="submit" disabled={saving || !usable}>{saving ? "保存中..." : "保存"}</button>
+          </footer>
+        </form>
+      </aside>
+    </div> : null}
     {removing ? <div className="overlay modal-overlay"><div className="batch-modal" role="dialog" aria-modal="true" aria-label="删除商品组">
       <header><div><h2>删除商品组</h2><p>{removing.name} · {removing.reference}</p></div><button className="text-button" type="button" aria-label="关闭" onClick={() => setRemoving(null)}><X /></button></header>
       <ul className="group-delete-impact">

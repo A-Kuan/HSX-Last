@@ -1,18 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus } from "@phosphor-icons/react";
+import { Plus, X } from "@phosphor-icons/react";
 import { api } from "../api.js";
+import { SearchSelect } from "./SearchSelect.jsx";
 
 const TABS = [
   { key: "categories", label: "配件品类", path: "categories", noun: "品类" },
   { key: "partTypes", label: "件类", path: "part-types", noun: "件类" },
   { key: "partSets", label: "套餐", path: "part-sets", noun: "套餐" },
   { key: "brands", label: "品牌", path: "brands", noun: "品牌" },
+  { key: "oemBrands", label: "整车品牌", path: "oem-brands", noun: "整车品牌" },
   { key: "units", label: "单位", path: "units", noun: "单位" },
   { key: "origins", label: "产地", path: "origins", noun: "产地" },
   { key: "channels", label: "渠道", path: "channels", noun: "渠道" },
 ];
 
-const emptyEditor = () => ({ mode: "create", id: "", name: "", prefix: "", system: "", note: "", partTypeIds: [] });
+const emptyEditor = () => ({
+  mode: "create",
+  id: "",
+  name: "",
+  prefix: "",
+  system: "",
+  note: "",
+  alias: "",
+  enabled: true,
+  partTypeIds: [],
+});
 
 export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
   const [data, setData] = useState(null);
@@ -36,7 +48,7 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
 
   useEffect(() => { load(); }, []);
 
-  const active = TABS.find((item) => item.key === tab);
+  const active = TABS.find((item) => item.key === tab) || TABS[0];
   const items = data?.[tab] || [];
   const partTypeNames = useMemo(() => new Map((data?.partTypes || []).map((item) => [item.id, item.name])), [data]);
 
@@ -44,6 +56,17 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
     setTab(key);
     setEditor(null);
     setConfirming("");
+    setError("");
+  };
+
+  const openCreate = () => {
+    setError("");
+    setConfirming("");
+    setEditor(emptyEditor());
+  };
+
+  const closeEditor = () => {
+    setEditor(null);
     setError("");
   };
 
@@ -56,6 +79,12 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
     }
     if (tab === "partSets") {
       return (item.partTypeIds || []).map((id) => partTypeNames.get(id) || id).join(" / ");
+    }
+    if (tab === "brands") {
+      return [item.alias, item.usageCount ? `${item.usageCount} 条 SKU` : ""].filter(Boolean).join(" · ");
+    }
+    if (tab === "oemBrands") {
+      return item.usageCount ? `${item.usageCount} 条原厂件` : "";
     }
     return item.usageCount ? `${item.usageCount} 条资料` : "";
   };
@@ -70,6 +99,8 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
       prefix: item.prefix || "",
       system: item.system || "",
       note: item.note || "",
+      alias: item.alias || "",
+      enabled: item.enabled === undefined ? true : Boolean(item.enabled),
       partTypeIds: item.partTypeIds || [],
     });
   };
@@ -84,7 +115,9 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
         ? { name: editor.name, note: editor.note, partTypeIds: editor.partTypeIds }
         : tab === "categories"
           ? { name: editor.name, prefix: editor.prefix }
-          : { name: editor.name };
+          : tab === "brands"
+            ? { name: editor.name, alias: editor.alias, note: editor.note, enabled: editor.enabled }
+            : { name: editor.name };
     try {
       if (editor.mode === "create") {
         await api(`/dictionaries/${active.path}`, { method: "POST", body: JSON.stringify(body) });
@@ -122,45 +155,30 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
     }));
   };
 
+  const editing = editor ? (editor.mode === "create" ? `新增${active.noun}` : `编辑${active.noun}`) : "";
+
   return <div className="workspace dict-workspace">
     <div className="page-title-row">
       <div>
         <h1>配置中心</h1>
       </div>
       <div className="page-actions">
-        <button className="primary-button" type="button" onClick={() => { setError(""); setConfirming(""); setEditor(emptyEditor()); }}><Plus /> 新增{active.noun}</button>
+        <button className="primary-button" type="button" onClick={openCreate}><Plus /> 新增{active.noun}</button>
       </div>
     </div>
     <nav className="status-tabs" role="tablist">
       {TABS.map((item) => <button key={item.key} role="tab" type="button" aria-selected={tab === item.key} className={tab === item.key ? "is-active" : ""} onClick={() => switchTab(item.key)}>{item.label}</button>)}
     </nav>
     <div className="content-area">
-      {error ? <p className="dict-error">{error}</p> : null}
+      {error && !editor ? <p className="dict-error">{error}</p> : null}
       <div className="dict-panel">
         <div className="dict-head"><span>名称</span><span>操作</span></div>
-        {editor ? <div className="dict-editor">
-          <div className="dict-editor-fields">
-            <input autoFocus value={editor.name} placeholder="名称" aria-label="名称" onChange={(event) => setEditor({ ...editor, name: event.target.value })} />
-            {tab === "categories" ? <input value={editor.prefix} placeholder="编码前缀（如 LX）" aria-label="编码前缀" maxLength={4} onChange={(event) => setEditor({ ...editor, prefix: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) })} /> : null}
-            {tab === "partTypes" ? <input value={editor.system} placeholder="系统" aria-label="系统" onChange={(event) => setEditor({ ...editor, system: event.target.value })} /> : null}
-            {tab === "partSets" ? <input value={editor.note} placeholder="备注" aria-label="备注" onChange={(event) => setEditor({ ...editor, note: event.target.value })} /> : null}
-          </div>
-          {tab === "partSets" ? <div className="dict-checks">
-            {(data?.partTypes || []).map((partType) => <label key={partType.id} className="dict-check">
-              <input type="checkbox" checked={editor.partTypeIds.includes(partType.id)} onChange={() => togglePartType(partType.id)} />
-              {partType.name}
-            </label>)}
-          </div> : null}
-          <div className="dict-editor-actions">
-            <button className="secondary-button" type="button" onClick={() => { setEditor(null); setError(""); }}>取消</button>
-            <button className="primary-button" type="button" disabled={saving || !editor.name.trim()} onClick={save}>{saving ? "保存中..." : "保存"}</button>
-          </div>
-        </div> : null}
         {loading ? null : items.map((item) => {
           const key = item.id || item.name;
           return <div className={`dict-row${confirming === key ? " is-confirming" : ""}`} key={key}>
             <div className="dict-main">
               <strong>{item.name}</strong>
+              {tab === "brands" && item.enabled === 0 ? <span className="dict-tag">已停用</span> : null}
               {metaOf(item) ? <small>{metaOf(item)}</small> : null}
             </div>
             <div className="dict-actions">
@@ -176,5 +194,71 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
         })}
       </div>
     </div>
+
+    {editor ? <div className="overlay drawer-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) closeEditor(); }}>
+      <aside className="edit-drawer dict-drawer" role="dialog" aria-modal="true" aria-label={editing}>
+        <header>
+          <h2>{editing}</h2>
+          <button className="icon-button" type="button" aria-label="关闭" onClick={closeEditor}><X /></button>
+        </header>
+        <form onSubmit={(event) => { event.preventDefault(); save(); }}>
+          <div className="dict-form">
+            <label className="required">名称
+              <input autoFocus value={editor.name} maxLength={40} placeholder={`${active.noun}名称`} onChange={(event) => setEditor({ ...editor, name: event.target.value })} />
+              <span className="char-count">{editor.name.length}/40</span>
+            </label>
+
+            {tab === "categories" ? <label>编码前缀
+              <input value={editor.prefix} maxLength={4} placeholder="如 LX" onChange={(event) => setEditor({ ...editor, prefix: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) })} />
+            </label> : null}
+
+            {tab === "partTypes" ? <label>系统
+              <input value={editor.system} maxLength={20} placeholder="如 保养件" onChange={(event) => setEditor({ ...editor, system: event.target.value })} />
+            </label> : null}
+
+            {tab === "brands" ? <>
+              <label>英文名 / 别名
+                <input value={editor.alias} maxLength={40} placeholder="如 BOSCH / 博世" onChange={(event) => setEditor({ ...editor, alias: event.target.value })} />
+                <span className="char-count">{editor.alias.length}/40</span>
+              </label>
+              <label>状态
+                <SearchSelect
+                  ariaLabel="状态"
+                  value={editor.enabled ? "enabled" : "disabled"}
+                  onChange={(value) => setEditor({ ...editor, enabled: value === "enabled" })}
+                  options={[{ value: "enabled", label: "启用" }, { value: "disabled", label: "停用" }]}
+                />
+              </label>
+              <label>备注
+                <textarea value={editor.note} maxLength={200} placeholder="选填" onChange={(event) => setEditor({ ...editor, note: event.target.value })} />
+                <span className="char-count">{editor.note.length}/200</span>
+              </label>
+            </> : null}
+
+            {tab === "partSets" ? <>
+              <label>备注
+                <input value={editor.note} maxLength={100} placeholder="选填" onChange={(event) => setEditor({ ...editor, note: event.target.value })} />
+              </label>
+              <div className="dict-field">
+                <span className="dict-field-label">包含件类</span>
+                <div className="dict-checks">
+                  {(data?.partTypes || []).map((partType) => <label key={partType.id} className="dict-check">
+                    <input type="checkbox" checked={editor.partTypeIds.includes(partType.id)} onChange={() => togglePartType(partType.id)} />
+                    {partType.name}
+                  </label>)}
+                </div>
+              </div>
+            </> : null}
+          </div>
+
+          {error ? <p className="dict-error">{error}</p> : null}
+
+          <footer>
+            <button className="secondary-button" type="button" onClick={closeEditor}>取消</button>
+            <button className="primary-button" type="submit" disabled={saving || !editor.name.trim()}>{saving ? "保存中..." : "保存"}</button>
+          </footer>
+        </form>
+      </aside>
+    </div> : null}
   </div>;
 }

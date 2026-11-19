@@ -1,18 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwise, Car, CaretDown, CaretLeft, CaretRight, Check, CheckCircle,
-  DotsThree, DownloadSimple, FileText, MagnifyingGlass, Minus, PencilSimple,
+  DotsThree, DownloadSimple, FileText, ImageSquare, MagnifyingGlass, Minus, PencilSimple,
   Plus, Prohibit, Trash, UploadSimple, X,
 } from "@phosphor-icons/react";
-import { api } from "./api.js";
+import { api, API_BASE } from "./api.js";
 import { nextGroupReference } from "./groupReference.js";
 import { DictionaryAdmin } from "./components/DictionaryAdmin.jsx";
 import { GroupAdmin } from "./components/GroupAdmin.jsx";
 import { SearchSelect } from "./components/SearchSelect.jsx";
 import { NavBar } from "./components/NavBar.jsx";
 
-const ASSET_BASE = `${import.meta.env.BASE_URL}assets/`;
 const STATUS_LABELS = { draft: "草稿", enabled: "启用", disabled: "停用" };
+const SOURCE_LABELS = { oem: "原厂件", brand: "品牌件", used: "拆车件" };
+
+const skuImageUrl = (sku) => `${API_BASE}/skus/${encodeURIComponent(sku.id)}/image?v=${encodeURIComponent(sku.updatedAt || "")}`;
+
+async function fileToDataUrl(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 900 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.86);
+}
+
+function skuBrandLabel(sku) {
+  if (!sku) return "";
+  if (sku.sourceType === "oem") return sku.brand ? `${sku.oemBrand || ""}原厂 · ${sku.brand}` : `${sku.oemBrand || ""}原厂`;
+  if (sku.sourceType === "used") return sku.brand ? `${sku.brand}（拆车）` : "拆车件";
+  return sku.brand || "未填写品牌";
+}
 const VERIFY_LABELS = { pending: "待核实", verified: "已核实", rejected: "不适配" };
 const formatBreakpoint = (value) => {
   const digits = String(value || "").replace(/[^0-9]/g, "");
@@ -21,7 +40,7 @@ const formatBreakpoint = (value) => {
   return digits.length >= 8 ? `${digits.slice(0, 4)}-${digits.slice(4, 6)}` : digits;
 };
 
-const CSV_HEADERS = ["商品组参考编码", "商品名称", "配件品类", "SKU编码", "品牌", "品牌件号", "基础单位", "包装数量", "销售价", "资料状态", "OE号", "车型品牌", "车系", "起始年款", "结束年款", "车型版本", "发动机配置", "安装位置", "资料来源", "核实状态", "内部备注"];
+const CSV_HEADERS = ["商品组参考编码", "商品名称", "配件品类", "SKU编码", "品牌", "品牌件号", "基础单位", "包装数量", "销售价", "资料状态", "OE号", "车型品牌", "车系", "起始年款", "结束年款", "车型版本", "发动机配置", "安装位置", "资料来源", "核实状态", "内部备注", "件源类型", "整车品牌"];
 
 function csvEscape(value) {
   const text = String(value ?? "");
@@ -74,6 +93,8 @@ function csvToPayloads(text, groups) {
           id: skuId, brand: record.品牌, partNo: record.品牌件号, unit: record.基础单位,
           packQuantity: Number(record.包装数量), price: Number(record.销售价),
           status: ({ 草稿: "draft", 启用: "enabled", 停用: "disabled" })[record.资料状态] || record.资料状态 || "draft",
+          sourceType: ({ 原厂件: "oem", 品牌件: "brand", 拆车件: "used" })[record.件源类型] || record.件源类型 || "brand",
+          oemBrand: record.整车品牌 || "",
           note: record.内部备注,
         },
         oeNumbers: [], fitments: [],
@@ -98,6 +119,7 @@ function exportRows(items) {
       item.packQuantity, item.price, STATUS_LABELS[item.status] || item.status, index === 0 ? item.oeNumbers.join("|") : "",
       fitment.make, fitment.series, fitment.yearFrom, fitment.yearTo, fitment.variant, fitment.engine, fitment.position,
       fitment.source, VERIFY_LABELS[fitment.verificationStatus] || fitment.verificationStatus, item.note,
+      SOURCE_LABELS[item.sourceType] || "品牌件", item.oemBrand || "",
     ]);
   });
   return [CSV_HEADERS, ...dataRows];
@@ -109,11 +131,6 @@ function Checkbox({ checked, indeterminate = false, onChange, label }) {
 
 function IconButton({ children, label, onClick, disabled = false }) {
   return <button className="icon-button" aria-label={label} title={label} type="button" onClick={onClick} disabled={disabled}>{children}</button>;
-}
-
-function ProductImage({ group, small = false }) {
-  const src = group.image ? `${ASSET_BASE}${group.image}` : `${ASSET_BASE}brake-pads.png`;
-  return <img className={`product-image ${small ? "is-small" : ""}`} src={src} alt={group.name} />;
 }
 
 function VehicleLookup({ onView }) {
@@ -149,14 +166,14 @@ function VehicleLookup({ onView }) {
         <div className="vehicle-summary">
           <strong>{result.vehicle.label}</strong>
           <span>{[result.vehicle.platform, `${result.vehicle.yearFrom}–${result.vehicle.yearTo}`, result.vehicle.engine, result.vehicle.drive].filter(Boolean).join(" · ")}</span>
-          <span className="vehicle-set">{result.set?.name || result.partTypes.map((partType) => partType.name).join(" / ")}</span>
+          <span className="vehicle-set">{result.set?.name || (result.partTypes.length > 3 ? "全部件类" : result.partTypes.map((partType) => partType.name).join(" / "))}</span>
         </div>
         <div className="part-grid">{result.categories.map((category) => <section className="part-card" key={category.partType.id}>
           <header><h3>{category.partType.name}</h3>{brands(category.items) ? <span>{brands(category.items)} 个品牌</span> : null}</header>
           {category.items.length ? category.items.map((item) => <div className="part-item" key={item.group.id}>
             <div className="part-item-head"><strong>{item.group.name}</strong><small>{item.group.reference}{item.group.position ? ` · ${item.group.position}` : ""}</small></div>
             <ul className="brand-list">{item.skus.filter((sku) => sku.status === "enabled").map((sku) => <li key={sku.id}>
-              <span className="brand">{sku.brand}</span><span className="part-no">{sku.partNo}</span><span className="price">{sku.price > 0 ? `¥${Number(sku.price).toFixed(2)}` : "面议"}</span>
+              <span className="brand">{skuBrandLabel(sku)}</span><span className="part-no">{sku.partNo}</span><span className="price">{sku.price > 0 ? `¥${Number(sku.price).toFixed(2)}` : "面议"}</span>
             </li>)}</ul>
             {!item.skus.some((sku) => sku.status === "enabled") && <p className="part-empty">暂无在售品牌</p>}
           </div>) : <p className="part-empty">未建档</p>}
@@ -170,9 +187,10 @@ function VehicleLookup({ onView }) {
   </main>;
 }
 
-const emptyVehicleForm = { brand: "", series: "", generation: "", platform: "", yearFrom: "", yearTo: "", engine: "", body: "", drive: "", note: "", aliases: [], products: [] };
+const emptyVehicleForm = { vin: "", brand: "", series: "", generation: "", platform: "", yearFrom: "", yearTo: "", engine: "", body: "", drive: "", note: "", aliases: [], products: [] };
 
 const vehicleToForm = (vehicle) => ({
+  vin: vehicle.vin || "",
   brand: vehicle.brand, series: vehicle.series, generation: vehicle.generation, platform: vehicle.platform,
   yearFrom: vehicle.yearFrom ?? "", yearTo: vehicle.yearTo ?? "", engine: vehicle.engine, body: vehicle.body,
   drive: vehicle.drive, note: vehicle.note || "",
@@ -189,6 +207,9 @@ function VehicleAdmin({ onToast }) {
   const [term, setTerm] = useState("");
   const [drawer, setDrawer] = useState(null);
   const [vinOpen, setVinOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [rules, setRules] = useState([]);
+  const [ruleError, setRuleError] = useState("");
   const [removing, setRemoving] = useState(null);
   const [opening, setOpening] = useState("");
 
@@ -200,7 +221,19 @@ function VehicleAdmin({ onToast }) {
   };
   useEffect(() => { load(); }, []);
 
-  const openCreate = (vin = "") => setDrawer({ vehicleId: null, draft: { ...emptyVehicleForm }, vin });
+  const openCreate = (prefill = {}) => setDrawer({
+    vehicleId: null,
+    draft: {
+      ...emptyVehicleForm,
+      vin: prefill.vin || "",
+      brand: prefill.brand || "",
+      series: prefill.series || "",
+      generation: prefill.generation || "",
+      engine: prefill.engine || "",
+      yearFrom: prefill.yearFrom ?? "",
+      yearTo: prefill.yearTo ?? "",
+    },
+  });
   const openEdit = async (item) => {
     setOpening(item.id);
     try {
@@ -214,6 +247,19 @@ function VehicleAdmin({ onToast }) {
     catch (removeError) { setError(removeError.message); setRemoving(null); }
   };
 
+  const openRules = async () => {
+    setRulesOpen(true);
+    setRuleError("");
+    try { setRules((await api("/vin/rules")).items); }
+    catch (error) { setRuleError(error.message); }
+  };
+  const removeRule = async (prefix) => {
+    try {
+      await api(`/vin/rules/${encodeURIComponent(prefix)}`, { method: "DELETE" });
+      setRules((current) => current.filter((rule) => rule.prefix !== prefix));
+    } catch (error) { setRuleError(error.message); }
+  };
+
   const needle = term.trim().toLowerCase();
   const filtered = needle
     ? items.filter((vehicle) => [vehicle.label, vehicle.platform, vehicle.engine, ...(vehicle.aliases || [])].join(" ").toLowerCase().includes(needle))
@@ -224,6 +270,7 @@ function VehicleAdmin({ onToast }) {
       <div><h1>车型库</h1></div>
       <div className="page-actions">
         <button className="secondary-button" type="button" onClick={() => setVinOpen(true)}><Car /> VIN 识别录入</button>
+        <button className="secondary-button" type="button" onClick={openRules}>VIN 规则</button>
         <button className="primary-button" type="button" onClick={() => openCreate()}><Plus /> 新增车型</button>
       </div>
     </div>
@@ -235,7 +282,7 @@ function VehicleAdmin({ onToast }) {
       : filtered.length ? <div className="vehicle-list">
         <div className="vehicle-list-head"><span>车型</span><span>平台</span><span>年款</span><span>发动机</span><span>适配件</span><span /></div>
         {filtered.map((vehicle) => <div className="vehicle-list-row" key={vehicle.id}>
-          <div className="vehicle-identity"><strong>{vehicle.label}</strong><small>{(vehicle.aliases || []).slice(0, 4).join(" / ") || "无别名"}</small></div>
+          <div className="vehicle-identity"><strong>{vehicle.label}</strong><small>{[vehicle.vin ? `VIN ${vehicle.vin}` : "", (vehicle.aliases || []).slice(0, 4).join(" / ") || "无别名"].filter(Boolean).join(" · ")}</small></div>
           <span>{vehicle.platform || "—"}</span>
           <span>{vehicle.yearFrom || "?"}–{vehicle.yearTo || "?"}</span>
           <span>{vehicle.engine || "—"}</span>
@@ -247,8 +294,19 @@ function VehicleAdmin({ onToast }) {
         </div>)}
       </div>
         : <div className="table-shell empty-shell"><div className="empty-state"><Car /><h3>{needle ? "没有匹配的车型" : "还没有维护车型"}</h3><p>{needle ? "换个关键词试试" : "手动新增车型，或粘贴 VIN 识别"}</p>{!needle && <button className="primary-button" type="button" onClick={() => openCreate()}><Plus /> 新增车型</button>}</div></div>}
-    {drawer && <VehicleDrawer vehicleId={drawer.vehicleId} draft={drawer.draft} vin={drawer.vin} onClose={() => setDrawer(null)} onSaved={(saved) => { setDrawer(null); onToast?.(`车型 ${saved.label} 已保存`); load(); }} />}
-    {vinOpen && <VinDialog onClose={() => setVinOpen(false)} onManual={(vin) => { setVinOpen(false); openCreate(vin); }} />}
+    {drawer && <VehicleDrawer vehicleId={drawer.vehicleId} draft={drawer.draft} onClose={() => setDrawer(null)} onSaved={(saved) => { setDrawer(null); onToast?.(`车型 ${saved.label} 已保存`); load(); }} />}
+    {vinOpen && <VinDialog onClose={() => setVinOpen(false)} onManual={(prefill) => { setVinOpen(false); openCreate(prefill); }} />}
+    {rulesOpen && <div className="overlay modal-overlay"><div className="batch-modal vin-rules-modal" role="dialog" aria-modal="true" aria-label="VIN 规则">
+      <header><div><h2>VIN 规则</h2></div><IconButton label="关闭" onClick={() => setRulesOpen(false)}><X /></IconButton></header>
+      {ruleError ? <div className="form-error"><Prohibit weight="fill" />{ruleError}</div> : null}
+      <ul className="vin-rule-list">
+        {rules.map((rule) => <li key={rule.prefix}>
+          <span className="vin-rule-prefix">{rule.prefix}</span>
+          <span className="vin-rule-name">{[rule.brand, rule.series, rule.generation, rule.engine].filter(Boolean).join(" · ")}</span>
+          <button className="text-button is-danger" type="button" onClick={() => removeRule(rule.prefix)}>删除</button>
+        </li>)}
+      </ul>
+    </div></div>}
     {removing && <div className="overlay modal-overlay"><div className="batch-modal" role="dialog" aria-modal="true" aria-label="删除车型">
       <header><div><h2>删除车型</h2><p>{removing.label}</p></div><IconButton label="关闭" onClick={() => setRemoving(null)}><X /></IconButton></header>
       <p className="modal-note">删除后该车型的别名与适配件映射一并移除，商品组和 SKU 不受影响。</p>
@@ -257,7 +315,7 @@ function VehicleAdmin({ onToast }) {
   </main>;
 }
 
-function VehicleDrawer({ vehicleId, draft, vin, onClose, onSaved }) {
+function VehicleDrawer({ vehicleId, draft, onClose, onSaved }) {
   const [form, setForm] = useState(draft);
   const [groups, setGroups] = useState([]);
   const [partTypes, setPartTypes] = useState([]);
@@ -299,11 +357,11 @@ function VehicleDrawer({ vehicleId, draft, vin, onClose, onSaved }) {
   return <div className="overlay drawer-overlay"><aside className="edit-drawer sku-edit-drawer vehicle-drawer" role="dialog" aria-modal="true" aria-label={vehicleId ? "编辑车型" : "新增车型"}>
     <header><h2>{vehicleId ? `编辑车型 · ${form.brand} ${form.series}`.trim() : "新增车型"}</h2><IconButton label="关闭编辑" onClick={onClose}><X /></IconButton></header>
     <form onSubmit={submit}>
-      {vin && <p className="vin-hint"><Car />VIN {vin} · 识别服务尚未接入，请手动填写</p>}
       {errors.form && <div className="form-error"><Prohibit weight="fill" />{errors.form}</div>}
       <section>
         <h3>基本信息</h3>
         <div className="form-grid">
+          <Field label="车架号（VIN）" value={form.vin || ""} onChange={(value) => set("vin", value.toUpperCase().replace(/\s+/g, ""))} error={errors.vin} maxLength={17} />
           <Field label="品牌" value={form.brand} onChange={(value) => set("brand", value)} error={errors.brand} required list="vehicle-brands" />
           <datalist id="vehicle-brands"><option value="奥迪" /><option value="保时捷" /><option value="大众" /><option value="宝马" /><option value="奔驰" /></datalist>
           <Field label="车系" value={form.series} onChange={(value) => set("series", value)} error={errors.series} required />
@@ -345,21 +403,63 @@ function VehicleDrawer({ vehicleId, draft, vin, onClose, onSaved }) {
 
 function VinDialog({ onClose, onManual }) {
   const [vin, setVin] = useState("");
+  const [result, setResult] = useState(null);
   const [error, setError] = useState("");
-  const [checked, setChecked] = useState(false);
-  const submit = (event) => {
+  const [loading, setLoading] = useState(false);
+
+  const decode = async (event) => {
     event.preventDefault();
     const value = vin.trim().toUpperCase().replace(/\s+/g, "");
-    if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(value)) { setError("VIN 应为 17 位字母数字，且不含 I、O、Q"); return; }
-    setError(""); setChecked(true);
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api(`/vin/decode?vin=${encodeURIComponent(value)}`);
+      if (!data.valid) {
+        setResult(null);
+        setError("VIN 应为 17 位字母数字，且不含 I、O、Q");
+      } else {
+        setResult(data);
+      }
+    } catch (decodeError) {
+      setError(decodeError.message);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const rule = result?.rule;
+  const handoff = () => onManual({
+    vin: result.vin,
+    brand: result.brand || rule?.brand || "",
+    series: rule?.series || "",
+    generation: rule?.generation || "",
+    engine: rule?.engine || "",
+    yearFrom: rule?.yearFrom ?? (result.year || ""),
+    yearTo: rule?.yearTo ?? "",
+  });
+
   return <div className="overlay modal-overlay"><div className="batch-modal vin-modal" role="dialog" aria-modal="true" aria-label="VIN 识别车型">
-    <header><div><h2>VIN 识别车型</h2><p>粘贴 17 位车架号</p></div><IconButton label="关闭" onClick={onClose}><X /></IconButton></header>
-    <form onSubmit={submit}>
-      <label>车架号（VIN）<input value={vin} maxLength={17} className={error ? "is-invalid" : ""} placeholder="例如 WAUZZZ4M0ND000000" onChange={(event) => { setVin(event.target.value.toUpperCase()); setChecked(false); setError(""); }} />{error && <small className="field-error">{error}</small>}</label>
-      {checked
-        ? <div className="vin-result"><p>VIN 解码服务尚未接入，暂时无法自动识别车型。</p><div className="vin-actions"><button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="button" onClick={() => onManual(vin.trim().toUpperCase())}>手动录入这台车</button></div></div>
-        : <footer><button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="submit" disabled={!vin.trim()}>识别车型</button></footer>}
+    <header><div><h2>VIN 识别车型</h2></div><IconButton label="关闭" onClick={onClose}><X /></IconButton></header>
+    <form onSubmit={decode}>
+      <label>车架号（VIN）<input value={vin} maxLength={17} className={error ? "is-invalid" : ""} placeholder="17 位车架号" onChange={(event) => { setVin(event.target.value.toUpperCase()); setResult(null); setError(""); }} />{error && <small className="field-error">{error}</small>}</label>
+      {result
+        ? <>
+          <dl className="vin-decoded">
+            <dt>整车品牌</dt><dd>{result.brand || "—"}</dd>
+            <dt>年款</dt><dd>{result.year || "—"}</dd>
+            <dt>总装厂</dt><dd>{result.plant || "—"}</dd>
+            <dt>VDS 前缀</dt><dd>{result.vin.slice(0, 8)}</dd>
+            <dt>匹配车型</dt><dd>{rule ? [rule.series, rule.generation, rule.engine].filter(Boolean).join(" · ") : "未匹配"}</dd>
+          </dl>
+          <div className="vin-actions">
+            <button className="secondary-button" type="button" onClick={onClose}>取消</button>
+            <button className="primary-button" type="button" onClick={handoff}>去录入车型</button>
+          </div>
+        </>
+        : <footer>
+          <button className="secondary-button" type="button" onClick={onClose}>取消</button>
+          <button className="primary-button" type="submit" disabled={!vin.trim() || loading}>{loading ? "识别中..." : "识别车型"}</button>
+        </footer>}
     </form>
   </div></div>;
 }
@@ -386,7 +486,7 @@ function SkuPicker({ onSelect, disabledIds = [] }) {
     {!loading && term.trim() && !results.length && <p className="field-note">没有找到匹配的 SKU</p>}
     {results.length > 0 && <ul className="sku-picker-list">{results.map((sku) => <li key={sku.id}>
       <button type="button" disabled={disabledIds.includes(sku.id)} onClick={() => onSelect(sku)}>
-        <strong>{sku.brand}</strong><span>{sku.partNo}</span><small>{sku.id} · {sku.groupName}</small>
+        <strong>{skuBrandLabel(sku)}</strong><span>{sku.partNo}</span><small>{sku.id} · {sku.groupName}</small>
       </button>
     </li>)}</ul>}
   </div>;
@@ -497,8 +597,97 @@ function fitmentText(sku) {
   return `${item.make} ${item.series}${years}`;
 }
 
-function ProductTable({ groups, expanded, setExpanded, selected, setSelected, onDetail, onEdit }) {
-  const [oeOpen, setOeOpen] = useState(new Set());
+function GroupOeStrip({ group, onChanged }) {
+  const [editing, setEditing] = useState(false);
+  const [items, setItems] = useState([]);
+  const [primary, setPrimary] = useState("");
+  const [draft, setDraft] = useState("");
+  const [date, setDate] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const oeKey = (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const isHistory = (item) => Boolean(item.breakpointDate) && item.breakpointDate !== "99999999";
+  const currentItems = group.oeItems.filter((item) => !isHistory(item));
+  const historyItems = group.oeItems.filter(isHistory);
+
+  const startEdit = () => {
+    setItems(group.oeItems.map((item) => ({ oeNo: item.oeNo, breakpointDate: item.breakpointDate || "" })));
+    setPrimary(group.primaryOe || "");
+    setDraft("");
+    setDate("");
+    setError("");
+    setEditing(true);
+  };
+
+  const addOe = () => {
+    const value = draft.trim();
+    if (!value) return;
+    if (items.some((item) => oeKey(item.oeNo) === oeKey(value))) { setDraft(""); return; }
+    setItems([...items, { oeNo: value, breakpointDate: date }]);
+    setDraft("");
+    setDate("");
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/groups/${encodeURIComponent(group.id)}`, {
+        method: "PUT",
+        body: JSON.stringify({ oeNumbers: items, primaryOe: primary }),
+      });
+      setEditing(false);
+      onChanged?.();
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <div className="group-oe-strip">
+    <span className="group-oe-label">组级 OE</span>
+    {editing ? <>
+      <div className="group-oe-current">
+        {items.map((item) => {
+          const isPrimary = oeKey(primary) === oeKey(item.oeNo);
+          return <span key={item.oeNo} className={`oe-chip${isPrimary ? " is-primary" : ""}`}>
+            {isPrimary ? <em>主</em> : null}{item.oeNo}
+            {item.breakpointDate ? <small>{item.breakpointDate}</small> : null}
+            <button type="button" className="oe-chip-action" title={isPrimary ? "取消主号" : "设为主号"} onClick={() => setPrimary(isPrimary ? "" : item.oeNo)}>★</button>
+            <button type="button" className="oe-chip-action" title="移除" onClick={() => { setItems(items.filter((row) => oeKey(row.oeNo) !== oeKey(item.oeNo))); if (isPrimary) setPrimary(""); }}>×</button>
+          </span>;
+        })}
+        {!items.length ? <small className="oe-empty">未维护</small> : null}
+      </div>
+      <div className="group-oe-edit-row">
+        <input value={draft} placeholder="录入 OE 号" aria-label="新增组级 OE" onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addOe(); } }} />
+        <input value={date} className="group-oe-date" placeholder="断点日期 YYYYMMDD" aria-label="组级 OE 断点日期" onChange={(event) => setDate(event.target.value.replace(/[^0-9-]/g, ""))} />
+        <button className="secondary-button" type="button" disabled={!draft.trim()} onClick={addOe}>添加</button>
+      </div>
+      <div className="group-oe-edit-actions">
+        {error ? <span className="field-error">{error}</span> : null}
+        <button className="text-button" type="button" onClick={() => { setEditing(false); setError(""); }}>取消</button>
+        <button className="primary-button" type="button" disabled={saving} onClick={save}>{saving ? "保存中..." : "保存"}</button>
+      </div>
+    </> : <>
+      <div className="group-oe-current">
+        {currentItems.map((item) => {
+          const isPrimary = item.isPrimary || item.oeNo === group.primaryOe;
+          return <span key={item.oeNo} className={`oe-chip${isPrimary ? " is-primary" : ""}`}>{isPrimary ? <em>主</em> : null}{item.oeNo}<span className="oe-state">现行</span></span>;
+        })}
+        {!currentItems.length && !historyItems.length ? <small className="oe-empty">未维护</small> : null}
+        {historyItems.length > 0 && <button type="button" className="oe-history-toggle" onClick={() => setHistoryOpen(!historyOpen)}>{historyOpen ? "收起历史" : `历史 ${historyItems.length} 个`}<CaretDown /></button>}
+      </div>
+      {historyOpen ? <div className="group-oe-history">{historyItems.map((item) => <span key={item.oeNo} className="oe-chip is-history">{item.oeNo}{formatBreakpoint(item.breakpointDate) ? <small>{formatBreakpoint(item.breakpointDate)}</small> : null}</span>)}</div> : null}
+      <button type="button" className="text-button group-oe-edit" onClick={startEdit}>编辑</button>
+    </>}
+  </div>;
+}
+
+function ProductTable({ groups, expanded, setExpanded, selected, setSelected, onDetail, onEdit, onViewImage, onUploadImage, onGroupChanged }) {
   const visibleIds = groups.flatMap((group) => group.skus.map((sku) => sku.id));
   const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const toggleMany = (ids, value) => setSelected((current) => { const next = new Set(current); ids.forEach((id) => value ? next.add(id) : next.delete(id)); return next; });
@@ -509,37 +698,22 @@ function ProductTable({ groups, expanded, setExpanded, selected, setSelected, on
       const selectedCount = ids.filter((id) => selected.has(id)).length;
       const toggleGroup = () => setExpanded((current) => { const next = new Set(current); open ? next.delete(group.id) : next.add(group.id); return next; });
       return <section className={`product-group ${open ? "is-expanded" : ""}`} key={group.id}>
-        <div className="group-row"><IconButton label={open ? "收起商品组" : "展开商品组"} onClick={toggleGroup}>{open ? <CaretDown /> : <CaretRight />}</IconButton><Checkbox checked={selectedCount === ids.length} indeterminate={selectedCount > 0 && selectedCount < ids.length} onChange={() => toggleMany(ids, selectedCount !== ids.length)} label={`选择${group.name}`} /><button className="group-main" type="button" aria-expanded={open} onClick={toggleGroup}><ProductImage group={group} /><span className="group-copy"><strong>{group.name}</strong><span>参考编码　{group.reference}　|　{group.category}　|　共 {group.totalSkuCount} 个 SKU{group.oeNumbers?.length ? `　|　组级 OE ${group.oeNumbers.length} 个（主 ${group.primaryOe}）` : ""}</span></span></button><div className="group-summary">{group.enabledSkuCount} 个已启用</div><span /></div>
-        {open && <div className="sku-table">{group.oeItems?.length ? (() => {
-              const currentItems = group.oeItems.filter((item) => item.isPrimary || item.oeNo === group.primaryOe || item.breakpointDate === "99999999");
-              const historyItems = group.oeItems.filter((item) => !currentItems.includes(item));
-              const showHistory = oeOpen.has(group.id);
-              return <div className="group-oe-strip">
-                <span className="group-oe-label">组级 OE</span>
-                <div className="group-oe-current">
-                  {currentItems.map((item) => {
-                    const isPrimary = item.isPrimary || item.oeNo === group.primaryOe;
-                    return <span key={item.oeNo} className={`oe-chip${isPrimary ? " is-primary" : ""}`}>{isPrimary ? <em>主</em> : null}{item.oeNo}<span className="oe-state">现行</span></span>;
-                  })}
-                  {historyItems.length > 0 && <button type="button" className="oe-history-toggle" onClick={() => setOeOpen((current) => { const next = new Set(current); next.has(group.id) ? next.delete(group.id) : next.add(group.id); return next; })}>{showHistory ? "收起历史" : `历史 ${historyItems.length} 个`}<CaretDown /></button>}
-                </div>
-                {showHistory ? <div className="group-oe-history">{historyItems.map((item) => <span key={item.oeNo} className="oe-chip is-history">{item.oeNo}{formatBreakpoint(item.breakpointDate) ? <small>{formatBreakpoint(item.breakpointDate)}</small> : null}</span>)}</div> : null}
-              </div>;
-            })() : null}<div className="sku-header"><span /><span /><span>SKU / 配件名称</span><span>品牌 / 品牌件号</span><span>OE 号</span><span>适配车型</span><span>售价</span><span>资料状态</span><span /></div>
-          {group.skus.map((sku) => <div className="sku-row" key={sku.id}><span /><Checkbox checked={selected.has(sku.id)} onChange={() => setSelected((current) => { const next = new Set(current); next.has(sku.id) ? next.delete(sku.id) : next.add(sku.id); return next; })} label={`选择${sku.id}`} /><button className="sku-identity" type="button" onClick={() => onDetail(sku, group)}><ProductImage group={group} small /><span><strong>{sku.id}</strong><small>{group.name} · {sku.packQuantity}{sku.unit}/包装</small></span></button><span><b>{sku.brand || "未填写品牌"}</b><small>{[sku.partNo, sku.origin, sku.channel].filter(Boolean).join(" · ")}</small></span><span>{sku.oeNumbers?.join(" / ") || "未维护"}</span><span>{fitmentText(sku)}</span><span>{sku.price > 0 ? `¥${Number(sku.price).toFixed(2)}` : "面议"}</span><span className={`status sku-status status-${sku.status}`}><i />{STATUS_LABELS[sku.status]}</span><IconButton label="编辑SKU" onClick={() => onEdit(sku, group)}><DotsThree /></IconButton></div>)}
+        <div className="group-row"><IconButton label={open ? "收起商品组" : "展开商品组"} onClick={toggleGroup}>{open ? <CaretDown /> : <CaretRight />}</IconButton><Checkbox checked={selectedCount === ids.length} indeterminate={selectedCount > 0 && selectedCount < ids.length} onChange={() => toggleMany(ids, selectedCount !== ids.length)} label={`选择${group.name}`} /><button className="group-main" type="button" aria-expanded={open} onClick={toggleGroup}><span className="group-copy"><strong>{group.name}</strong><span>参考编码　{group.reference}　|　{group.category}　|　共 {group.totalSkuCount} 个 SKU{group.oeNumbers?.length ? `　|　组级 OE ${group.oeNumbers.length} 个${group.primaryOe ? `（主 ${group.primaryOe}）` : ""}` : ""}</span></span></button><div className="group-summary">{group.enabledSkuCount} 个已启用</div><span /></div>
+        {open && <div className="sku-table"><GroupOeStrip group={group} onChanged={onGroupChanged} /><div className="sku-header"><span /><span /><span /><span>SKU / 配件名称</span><span>品牌 / 品牌件号</span><span>OE 号</span><span>适配车型</span><span>售价</span><span>资料状态</span><span /></div>
+          {group.skus.map((sku) => <div className="sku-row" key={sku.id}><span /><Checkbox checked={selected.has(sku.id)} onChange={() => setSelected((current) => { const next = new Set(current); next.has(sku.id) ? next.delete(sku.id) : next.add(sku.id); return next; })} label={`选择${sku.id}`} /><button className={`sku-thumb${sku.image ? " has-image" : ""}`} type="button" onClick={() => (sku.image ? onViewImage(sku) : onUploadImage(sku))} aria-label={sku.image ? `查看 ${sku.id} 商品图` : `上传 ${sku.id} 商品图`}>{sku.image ? <img src={skuImageUrl(sku)} alt="" /> : <ImageSquare />}</button><button className="sku-identity" type="button" onClick={() => onDetail(sku, group)}><span><strong>{sku.id}</strong><small>{group.name} · {sku.packQuantity}{sku.unit}/包装</small></span></button><span><b>{skuBrandLabel(sku)}</b><small>{[sku.partNo, sku.origin, sku.channel].filter(Boolean).join(" · ")}</small></span><span>{sku.oeNumbers?.join(" / ") || "未维护"}</span><span>{fitmentText(sku)}</span><span>{sku.price > 0 ? `¥${Number(sku.price).toFixed(2)}` : "面议"}</span><span className={`status sku-status status-${sku.status}`}><i />{STATUS_LABELS[sku.status]}</span><IconButton label="编辑SKU" onClick={() => onEdit(sku, group)}><DotsThree /></IconButton></div>)}
         </div>}
       </section>;
     })}
   </div>;
 }
 
-function DetailDrawer({ selected, onClose, onEdit }) {
+function DetailDrawer({ selected, onClose, onEdit, onViewImage, onUploadImage }) {
   const [tab, setTab] = useState("基本资料");
   const [activity, setActivity] = useState([]);
   const { sku, group } = selected;
   useEffect(() => { if (tab === "操作记录") api(`/skus/${encodeURIComponent(sku.id)}/activity`).then((data) => setActivity(data.items)).catch(() => setActivity([])); }, [sku.id, tab]);
-  return <div className="overlay drawer-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside className="detail-drawer" role="dialog" aria-modal="true" aria-label={`${sku.id} 商品详情`}><header><h2>SKU 详情</h2><IconButton label="关闭详情" onClick={onClose}><X /></IconButton></header><div className="detail-summary"><ProductImage group={group} /><div><h2>{group.name}</h2><button className="secondary-button edit-button" type="button" onClick={onEdit}><PencilSimple /> 编辑</button><dl><dt>品牌</dt><dd>{sku.brand || "-"}</dd><dt>SKU</dt><dd>{sku.id}</dd><dt>OE 号</dt><dd>{sku.oeNumbers?.join("、") || "-"}</dd><dt>状态</dt><dd><span className={`detail-status status-${sku.status}`} />{STATUS_LABELS[sku.status]}</dd></dl></div></div><nav className="detail-tabs" role="tablist">{["基本资料", "车型适配", "替代关系", "操作记录"].map((item) => <button role="tab" aria-selected={tab === item} className={tab === item ? "is-active" : ""} onClick={() => setTab(item)} type="button" key={item}>{item}</button>)}</nav>
-    {tab === "基本资料" && <div className="detail-data-grid"><dl><dt>商品组参考编码</dt><dd>{group.reference}</dd><dt>配件品类</dt><dd>{group.category}</dd><dt>品牌件号</dt><dd>{sku.partNo}</dd><dt>产地</dt><dd>{sku.origin || "-"}</dd><dt>渠道</dt><dd>{sku.channel || "-"}</dd><dt>包装</dt><dd>{sku.packQuantity}{sku.unit}/包装</dd><dt>销售价</dt><dd>{sku.price > 0 ? `¥${Number(sku.price).toFixed(2)}` : "面议"}</dd><dt>内部备注</dt><dd>{sku.note || "-"}</dd><dt>最近更新</dt><dd>{new Date(sku.updatedAt).toLocaleString("zh-CN")}</dd></dl></div>}
+  return <div className="overlay drawer-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside className="detail-drawer" role="dialog" aria-modal="true" aria-label={`${sku.id} 商品详情`}><header><h2>SKU 详情</h2><IconButton label="关闭详情" onClick={onClose}><X /></IconButton></header><div className="detail-summary">{sku.image ? <button className="detail-image" type="button" onClick={() => onViewImage(sku)} aria-label="查看商品图"><img src={skuImageUrl(sku)} alt="" /></button> : <button className="detail-image is-empty" type="button" onClick={() => onUploadImage(sku)}><ImageSquare /><span>上传商品图</span></button>}<div><h2>{group.name}</h2><button className="secondary-button edit-button" type="button" onClick={onEdit}><PencilSimple /> 编辑</button><dl><dt>品牌</dt><dd>{skuBrandLabel(sku)}</dd><dt>SKU</dt><dd>{sku.id}</dd><dt>OE 号</dt><dd>{sku.oeNumbers?.join("、") || "-"}</dd><dt>状态</dt><dd><span className={`detail-status status-${sku.status}`} />{STATUS_LABELS[sku.status]}</dd></dl></div></div><nav className="detail-tabs" role="tablist">{["基本资料", "车型适配", "替代关系", "操作记录"].map((item) => <button role="tab" aria-selected={tab === item} className={tab === item ? "is-active" : ""} onClick={() => setTab(item)} type="button" key={item}>{item}</button>)}</nav>
+    {tab === "基本资料" && <div className="detail-data-grid"><dl><dt>商品组参考编码</dt><dd>{group.reference}</dd><dt>配件品类</dt><dd>{group.category}</dd><dt>件源类型</dt><dd>{SOURCE_LABELS[sku.sourceType] || "品牌件"}</dd>{sku.sourceType === "oem" ? <><dt>整车品牌</dt><dd>{sku.oemBrand || "-"}</dd></> : null}<dt>品牌件号</dt><dd>{sku.partNo}</dd><dt>产地</dt><dd>{sku.origin || "-"}</dd><dt>渠道</dt><dd>{sku.channel || "-"}</dd><dt>包装</dt><dd>{sku.packQuantity}{sku.unit}/包装</dd><dt>销售价</dt><dd>{sku.price > 0 ? `¥${Number(sku.price).toFixed(2)}` : "面议"}</dd><dt>内部备注</dt><dd>{sku.note || "-"}</dd><dt>最近更新</dt><dd>{new Date(sku.updatedAt).toLocaleString("zh-CN")}</dd></dl></div>}
     {tab === "车型适配" && <div className="fitment-panel">{sku.fitments?.length ? <div className="fitment-table"><div><b>车型</b><b>年款</b><b>配置条件</b><b>安装位置</b><b>核实状态</b><b>资料来源</b></div>{sku.fitments.map((item, index) => <div key={`${item.make}-${item.series}-${index}`}><span>{item.make} {item.series}</span><span>{item.yearFrom || "-"}–{item.yearTo || "-"}</span><span>{[item.variant, item.engine].filter(Boolean).join(" / ") || "-"}</span><span>{item.position || "-"}</span><span><em className={item.verificationStatus === "verified" ? "verified" : ""}>{VERIFY_LABELS[item.verificationStatus]}</em></span><span>{item.source || "-"}</span></div>)}</div> : <div className="detail-placeholder"><FileText /><h3>尚未维护车型适配</h3></div>}</div>}
     {tab === "替代关系" && <div className="relation-wrap"><SkuRelations sku={sku} /></div>}
     {tab === "操作记录" && <div className="activity-list">{activity.length ? activity.map((item) => <div key={item.id}><strong>{item.summary}</strong><small>{new Date(item.createdAt).toLocaleString("zh-CN")}</small></div>) : <div className="detail-placeholder"><FileText /><h3>暂无操作记录</h3></div>}</div>}
@@ -556,15 +730,19 @@ function EditDrawer({ selected, groups, onClose, onSaved, onDeleted }) {
     groupId: initialGroup?.id || "__new__",
     groupName: initialGroup?.name || "", groupReference: initialGroup?.reference || (initialGroup ? "" : nextGroupReference(groups, [], "")), category: initialGroup?.category || "",
     id: initialSku?.id || "", brand: initialSku?.brand || "",
-    partNo: initialSku?.partNo || "", unit: initialSku?.unit || "个", origin: initialSku?.origin || "", channel: initialSku?.channel || "", packQuantity: initialSku?.packQuantity || 1,
+    partNo: initialSku?.partNo || "", unit: initialSku?.unit || "个", origin: initialSku?.origin || "", channel: initialSku?.channel || "", sourceType: initialSku?.sourceType || "brand", oemBrand: initialSku?.oemBrand || "", packQuantity: initialSku?.packQuantity || 1,
     price: initialSku?.price ?? "", status: initialSku?.status || "draft", note: initialSku?.note || "",
     oeNumbers: initialSku?.oeNumbers?.map(x => typeof x === "string" ? x : x.oeNo).join("\n") || "",
+    image: initialSku?.image || "", imagePreview: "", removeImage: false,
   });
-  const [dictionaries, setDictionaries] = useState({ categories: [], brands: [], units: [], origins: [], channels: [] });
+  const [dictionaries, setDictionaries] = useState({ categories: [], brands: [], units: [], origins: [], channels: [], oemBrands: [] });
   const [categoryNew, setCategoryNew] = useState(false);
   const [referenceAuto, setReferenceAuto] = useState(!initialGroup);
-  const [brandNew, setBrandNew] = useState(false);
-  useEffect(() => { api("/dictionaries").then((data) => setDictionaries({ categories: data.categories || [], brands: data.brands || [], units: data.units || [], origins: data.origins || [], channels: data.channels || [] })).catch(() => {}); }, []);
+  const imageFileRef = useRef(null);
+  const [brandDraft, setBrandDraft] = useState(null);
+  const [brandSaving, setBrandSaving] = useState(false);
+  const [brandError, setBrandError] = useState("");
+  useEffect(() => { api("/dictionaries").then((data) => setDictionaries({ categories: data.categories || [], brands: data.brands || [], units: data.units || [], origins: data.origins || [], channels: data.channels || [], oemBrands: data.oemBrands || [] })).catch(() => {}); }, []);
   const [fitments, setFitments] = useState(initialSku?.fitments || []);
   const [vehicle, setVehicle] = useState(null), [vehicleIndex, setVehicleIndex] = useState(-1);
   const [notice, setNotice] = useState("");
@@ -593,6 +771,26 @@ function EditDrawer({ selected, groups, onClose, onSaved, onDeleted }) {
   const [saving, setSaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const set = (key, value) => { setDirty(true); setErrors(current => ({...current, [key]: undefined})); setForm((current) => ({ ...current, [key]: value })); };
+  const createBrand = async () => {
+    if (!brandDraft) return;
+    const name = brandDraft.name.trim();
+    if (!name) return;
+    setBrandSaving(true);
+    setBrandError("");
+    try {
+      const created = await api("/dictionaries/brands", {
+        method: "POST",
+        body: JSON.stringify({ name, alias: brandDraft.alias.trim(), note: brandDraft.note.trim(), enabled: brandDraft.enabled }),
+      });
+      setDictionaries((current) => ({ ...current, brands: [...current.brands.filter((item) => item.name !== created.name), created] }));
+      setBrandDraft(null);
+      set("brand", created.name);
+    } catch (error) {
+      setBrandError(error.message);
+    } finally {
+      setBrandSaving(false);
+    }
+  };
   const chooseGroup = (groupId) => {
     const group = groups.find((item) => item.id === groupId);
     setDirty(true);
@@ -606,7 +804,9 @@ function EditDrawer({ selected, groups, onClose, onSaved, onDeleted }) {
       category: group?.category || "",
     }));
   };
-  const brandOptions = [...new Set([...dictionaries.brands.map((item) => item.name), form.brand].filter(Boolean))].sort((left, right) => left.localeCompare(right));
+  const enabledBrands = dictionaries.brands.filter((item) => item.enabled === undefined || item.enabled !== 0);
+  const brandAliases = new Map(dictionaries.brands.map((item) => [item.name, item.alias || ""]));
+  const brandOptions = [...new Set([...enabledBrands.map((item) => item.name), form.brand].filter(Boolean))].sort((left, right) => left.localeCompare(right));
   const categoryOptions = dictionaries.categories.map((item) => item.name);
   const unitOptions = dictionaries.units.length ? dictionaries.units.map((item) => item.name) : ["个", "件", "套", "盒"];
   const updateFitment = (index, key, value) => setFitments((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row));
@@ -645,9 +845,11 @@ function EditDrawer({ selected, groups, onClose, onSaved, onDeleted }) {
     }
     const payload = {
       group: form.groupId === "__new__" ? { name: form.groupName, reference: form.groupReference, category: form.category, image: "brake-pads.png" } : { id: form.groupId },
-      sku: { id: form.id, brand: form.brand, partNo: form.partNo, unit: form.unit, origin: form.origin, channel: form.channel, packQuantity: Number(form.packQuantity), price: Number(form.price), status: form.status, note: form.note },
+      sku: { id: form.id, brand: form.brand, partNo: form.partNo, unit: form.unit, origin: form.origin, channel: form.channel, sourceType: form.sourceType, oemBrand: form.oemBrand, packQuantity: Number(form.packQuantity), price: Number(form.price), status: form.status, note: form.note },
       oeNumbers: form.oeNumbers.split(/[\n,，]+/).map((item) => item.trim()).filter(Boolean),
       fitments,
+      ...(form.imagePreview ? { imageDataUrl: form.imagePreview } : {}),
+      ...(form.removeImage && !form.imagePreview ? { removeImage: true } : {}),
     };
     try {
       const saved = await api(editing ? `/skus/${encodeURIComponent(initialSku.id)}` : "/skus", { method: editing ? "PUT" : "POST", body: JSON.stringify(payload) });
@@ -663,7 +865,64 @@ function EditDrawer({ selected, groups, onClose, onSaved, onDeleted }) {
     <div className="wb-columns"><div className="wb-main">
     {errors.form && <div className="form-error"><Prohibit weight="fill" />{errors.form}</div>}
     <section className="wb-product"><h3>基础商品信息</h3><label>商品组<SearchSelect ariaLabel="商品组" value={form.groupId} onChange={chooseGroup} placeholder="选择商品组" searchable searchPlaceholder="搜索商品组或参考编码" options={[...groups.map((group) => ({ value: group.id, label: group.name, meta: group.reference, keywords: group.category })), { value: "__new__", label: "新建商品组", action: true }]} /></label><div className="form-grid"><Field label="商品组名称" value={form.groupName} onChange={(value) => set("groupName", value)} error={errors.groupName || errors.name} required /><Field label="参考编码" value={form.groupReference} onChange={(value) => { setReferenceAuto(false); set("groupReference", value); }} error={errors.groupReference || errors.reference} required /><label className="wb-category" aria-label="配件品类">配件品类<SearchSelect ariaLabel="配件品类" value={categoryNew ? "__new__" : form.category} onChange={(value) => { if (value === "__new__") { setCategoryNew(true); set("category", ""); if (referenceAuto) set("groupReference", nextGroupReference(groups, dictionaries.categories, "")); } else { setCategoryNew(false); set("category", value); if (referenceAuto) set("groupReference", nextGroupReference(groups, dictionaries.categories, value)); } }} placeholder="选择品类" options={[...categoryOptions.map((name) => ({ value: name, label: name })), { value: "__new__", label: "新建品类", action: true }]} />{categoryNew ? <input aria-label="新品类名称" value={form.category} placeholder="输入品类名称" onChange={(event) => set("category", event.target.value)} /> : null}{errors.category ? <small className="field-error">{errors.category}</small> : null}</label></div></section>
-    <section className="wb-sku"><h3>SKU 信息</h3><div className="form-grid"><Field label="SKU 编码" value={form.id} onChange={(value) => set("id", value)} error={errors.id} required disabled={editing} /><label className="wb-brand">品牌<span className="wb-brand-control"><SearchSelect ariaLabel="品牌" value={brandNew ? "__new__" : form.brand} onChange={(value) => { if (value === "__new__") { setBrandNew(true); set("brand", ""); } else { setBrandNew(false); set("brand", value); } }} placeholder="未选择" options={[{ value: "", label: "未选择" }, ...brandOptions.map((brand) => ({ value: brand, label: brand })), { value: "__new__", label: "新增品牌", action: true }]} />{brandNew && <input aria-label="新品牌名称" value={form.brand} placeholder="输入品牌名称" onChange={(event) => set("brand", event.target.value)} />}</span></label><Field label="品牌件号" value={form.partNo} onChange={(value) => set("partNo", value)} error={errors.partNo} /><label>基础单位<SearchSelect ariaLabel="基础单位" value={form.unit} onChange={(value) => set("unit", value)} options={unitOptions.map((unit) => ({ value: unit, label: unit }))} /></label><label className="wb-origin">产地<SearchSelect ariaLabel="产地" value={form.origin} onChange={(value) => set("origin", value)} options={[{ value: "", label: "未标注" }, ...dictionaries.origins.map((item) => ({ value: item.name, label: item.name }))]} /></label><Field label="包装内含数量" type="number" min="1" value={form.packQuantity} onChange={(value) => set("packQuantity", value)} error={errors.packQuantity} required /><Field label="销售价（元）" type="number" min="0" step="0.01" value={form.price} onChange={(value) => set("price", value)} error={errors.price} /><label>资料状态<SearchSelect ariaLabel="资料状态" value={form.status} onChange={(value) => set("status", value)} options={[{ value: "draft", label: "草稿" }, { value: "enabled", label: "启用" }, { value: "disabled", label: "停用" }]} /></label><label className="wb-channel">渠道<SearchSelect ariaLabel="渠道" value={form.channel} onChange={(value) => set("channel", value)} options={[{ value: "", label: "未标注" }, ...dictionaries.channels.map((item) => ({ value: item.name, label: item.name }))]} /></label></div><div className="wb-oe"><div className="section-title"><h3>OE 号 <span>{oeList.length || ""}</span></h3><button className="text-button" type="button" onClick={()=>setBatch("")}><UploadSimple/> 批量录入</button></div><div className="wb-oe-input"><input aria-label="输入 OE 号" placeholder="输入 OE 号，按 Enter 添加" value={oeInput} onChange={e=>setOeInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();appendOE(oeInput);}}} onPaste={e=>{const text=e.clipboardData.getData("text");if(/[\n,，;；\t|]/.test(text)){e.preventDefault();setBatch(text);}}}/><button className="secondary-button" type="button" disabled={!oeInput.trim()} onClick={()=>appendOE(oeInput)}>添加</button></div><p className="wb-help">保留原始格式与前导零；忽略大小写、空格和连字符去重。</p>{errors.oeNumbers && <p className="field-error">{errors.oeNumbers}</p>}<div className="wb-chips">{oeList.map((oe,i)=><span key={i}>{oe}<button type="button" aria-label={`移除 OE ${oe}`} onClick={()=>{set("oeNumbers",oeList.filter((_,j)=>j!==i).join("\n"));setNotice("OE 号已移除");}}><X/></button></span>)}</div>{oeConflicts.map(({ group, shared }) => {
+    <section className="wb-sku"><h3>SKU 信息</h3><div className="wb-sku-cols">
+      <div className="wb-sku-col">
+        <Field label="SKU 编码" value={form.id} onChange={(value) => set("id", value)} error={errors.id} required disabled={editing} />
+        <label>件源类型<SearchSelect ariaLabel="件源类型" value={form.sourceType} onChange={(value) => { set("sourceType", value); if (value === "oem") { set("brand", ""); set("partNo", ""); } else { set("oemBrand", ""); } }} options={[{ value: "brand", label: "品牌件" }, { value: "oem", label: "原厂件" }, { value: "used", label: "拆车件" }]} /></label>
+        {form.sourceType === "oem" && <label>整车品牌<SearchSelect ariaLabel="整车品牌" value={form.oemBrand} onChange={(value) => set("oemBrand", value)} placeholder="选择整车品牌" options={(dictionaries.oemBrands || []).map((item) => ({ value: item.name, label: item.name }))} />{errors.oemBrand ? <small className="field-error">{errors.oemBrand}</small> : null}</label>}
+        {form.sourceType !== "oem" && <label className="wb-brand">品牌<span className="wb-brand-control"><SearchSelect ariaLabel="品牌" value={form.brand} onChange={(value) => { if (value === "__new__") { setBrandError(""); setBrandDraft({ name: "", alias: "", note: "", enabled: true }); } else { set("brand", value); } }} placeholder="未选择" options={[{ value: "", label: "未选择" }, ...brandOptions.map((brand) => ({ value: brand, label: brand, keywords: brandAliases.get(brand) || "" })), { value: "__new__", label: "新增品牌", action: true }]} /></span></label>}
+        {form.sourceType !== "oem" && <Field label="品牌件号" value={form.partNo} onChange={(value) => set("partNo", value)} error={errors.partNo} />}
+        <label>基础单位<SearchSelect ariaLabel="基础单位" value={form.unit} onChange={(value) => set("unit", value)} options={unitOptions.map((unit) => ({ value: unit, label: unit }))} /></label>
+        <div className="wb-image">
+          <span className="wb-image-title">商品图</span>
+          <div className="wb-image-body">
+            <button
+              type="button"
+              className={`wb-image-tile${(form.imagePreview || (form.image && !form.removeImage)) ? " has-image" : ""}`}
+              aria-label={(form.imagePreview || (form.image && !form.removeImage)) ? "更换商品图" : "上传商品图"}
+              onClick={() => imageFileRef.current?.click()}
+            >
+              {(form.imagePreview || (form.image && !form.removeImage))
+                ? <img src={form.imagePreview || `${API_BASE}/skus/${encodeURIComponent(initialSku?.id || form.id)}/image?v=${encodeURIComponent(initialSku?.updatedAt || "")}`} alt="" />
+                : <ImageSquare />}
+            </button>
+            <div className="wb-image-actions">
+              <button type="button" className="text-button" onClick={() => imageFileRef.current?.click()}>
+                {(form.imagePreview || (form.image && !form.removeImage)) ? "更换" : "上传"}
+              </button>
+              {(form.imagePreview || (form.image && !form.removeImage))
+                ? <button type="button" className="text-button is-danger" onClick={() => setForm((current) => ({ ...current, imagePreview: "", image: "", removeImage: true }))}>移除</button>
+                : null}
+            </div>
+            <input
+              ref={imageFileRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                try {
+                  const dataUrl = await fileToDataUrl(file);
+                  setForm((current) => ({ ...current, imagePreview: dataUrl, removeImage: false }));
+                } catch {
+                  setNotice("图片读取失败");
+                }
+              }}
+            />
+          </div>
+        </div>
+      </div>
+      <div className="wb-sku-col">
+        <Field label="包装内含数量" type="number" min="1" value={form.packQuantity} onChange={(value) => set("packQuantity", value)} error={errors.packQuantity} required />
+        <Field label="销售价（元）" type="number" min="0" step="0.01" value={form.price} onChange={(value) => set("price", value)} error={errors.price} />
+        <label>资料状态<SearchSelect ariaLabel="资料状态" value={form.status} onChange={(value) => set("status", value)} options={[{ value: "draft", label: "草稿" }, { value: "enabled", label: "启用" }, { value: "disabled", label: "停用" }]} /></label>
+        <label>产地<SearchSelect ariaLabel="产地" value={form.origin} onChange={(value) => set("origin", value)} options={[{ value: "", label: "未标注" }, ...dictionaries.origins.map((item) => ({ value: item.name, label: item.name }))]} /></label>
+        <label>渠道<SearchSelect ariaLabel="渠道" value={form.channel} onChange={(value) => set("channel", value)} options={[{ value: "", label: "未标注" }, ...dictionaries.channels.map((item) => ({ value: item.name, label: item.name }))]} /></label>
+      </div>
+    </div>
+    <div className="wb-oe"><div className="section-title"><h3>OE 号 <span>{oeList.length || ""}</span></h3><button className="text-button" type="button" onClick={()=>setBatch("")}><UploadSimple/> 批量录入</button></div><div className="wb-oe-input"><input aria-label="输入 OE 号" placeholder="输入 OE 号，按 Enter 添加" value={oeInput} onChange={e=>setOeInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();appendOE(oeInput);}}} onPaste={e=>{const text=e.clipboardData.getData("text");if(/[\n,，;；\t|]/.test(text)){e.preventDefault();setBatch(text);}}}/><button className="secondary-button" type="button" disabled={!oeInput.trim()} onClick={()=>appendOE(oeInput)}>添加</button></div><p className="wb-help">保留原始格式与前导零；忽略大小写、空格和连字符去重。</p>{errors.oeNumbers && <p className="field-error">{errors.oeNumbers}</p>}<div className="wb-chips">{oeList.map((oe,i)=><span key={i}>{oe}<button type="button" aria-label={`移除 OE ${oe}`} onClick={()=>{set("oeNumbers",oeList.filter((_,j)=>j!==i).join("\n"));setNotice("OE 号已移除");}}><X/></button></span>)}</div>{oeConflicts.map(({ group, shared }) => {
             const samePosition = (group.position || "") === (currentGroup?.position || "");
             return <p className="wb-oe-conflict" key={group.id}>
               <span>OE {shared.slice(0, 3).join("、")}{shared.length > 3 ? ` 等 ${shared.length} 个` : ""} 已在「{group.name}」{group.position ? `（${group.position}）` : ""}</span>
@@ -680,6 +939,22 @@ function EditDrawer({ selected, groups, onClose, onSaved, onDeleted }) {
   </form></aside>
   {batch !== null && <div className="wb-modal-shade"><div className="wb-modal" role="dialog" aria-label="批量录入 OE 号"><div className="section-title"><h2>批量录入 OE 号</h2><IconButton label="关闭批量录入" onClick={()=>setBatch(null)}><X/></IconButton></div><p>每行一个，或用逗号、分号、Tab 分隔。空格不会拆分编号。</p><textarea aria-label="批量 OE 内容" placeholder={"34 11 6 874 930\n34 11 6 888 895"} value={batch} onChange={e=>setBatch(e.target.value)}/><div className="wb-preview"><strong>解析预览 · 新增 {parseOE(batch).values.length} 个 · 重复 {parseOE(batch).duplicate} 个</strong><div className="wb-chips">{parseOE(batch).values.map(x=><span key={x}>{x}</span>)}</div></div><div className="wb-actions"><button className="secondary-button" type="button" onClick={()=>setBatch(null)}>取消</button><button className="primary-button" type="button" disabled={!parseOE(batch).values.length} onClick={()=>{appendOE(batch);setBatch(null);}}>确认添加 {parseOE(batch).values.length} 个</button></div></div></div>}
   {(leave || removeIndex!==null || success) && <div className="wb-modal-shade"><div className="wb-modal wb-small" role="dialog" aria-label={success?"创建成功":leave?"未保存提醒":"删除车型"}><h2>{success?"SKU 创建成功":leave?"有尚未保存的内容":"删除此适配车型？"}</h2><p>{success?"商品资料已保存，可以在商品库中查看。":leave?"可以暂存草稿后离开，下次继续填写。":"删除后可重新添加，其他车型不受影响。"}</p><div className="wb-actions">{success?<><button type="button" className="secondary-button" onClick={()=>onSaved()}>返回商品库</button><button type="button" className="primary-button" onClick={()=>{setSuccess(false);setForm(x=>({...x,id:"",partNo:"",oeNumbers:"",note:""}));setFitments([]);}}>继续新增</button></>:leave?<><button type="button" className="text-button" onClick={onClose}>放弃修改</button><button type="button" className="secondary-button" onClick={()=>setLeave(false)}>继续编辑</button><button type="button" className="primary-button" onClick={()=>{draft();onClose();}}>暂存并离开</button></>:<><button type="button" className="secondary-button" onClick={()=>setRemoveIndex(null)}>保留</button><button type="button" className="primary-button" onClick={()=>{setFitments(x=>x.filter((_,i)=>i!==removeIndex));setRemoveIndex(null);setDirty(true);setNotice("车型适配已删除");}}>确认删除</button></>}</div></div></div>}
+  {brandDraft ? <div className="overlay modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setBrandDraft(null); }}>
+    <div className="batch-modal brand-modal" role="dialog" aria-modal="true" aria-label="新增品牌">
+      <header><div><h2>新增品牌</h2></div><IconButton label="关闭" onClick={() => setBrandDraft(null)}><X /></IconButton></header>
+      <div className="brand-form">
+        <label>名称<input autoFocus value={brandDraft.name} maxLength={40} placeholder="品牌名称" onChange={(event) => setBrandDraft({ ...brandDraft, name: event.target.value })} /></label>
+        <label>英文名 / 别名<input value={brandDraft.alias} maxLength={40} placeholder="如 BOSCH / 博世" onChange={(event) => setBrandDraft({ ...brandDraft, alias: event.target.value })} /></label>
+        <label>状态<SearchSelect ariaLabel="状态" value={brandDraft.enabled ? "enabled" : "disabled"} onChange={(value) => setBrandDraft({ ...brandDraft, enabled: value === "enabled" })} options={[{ value: "enabled", label: "启用" }, { value: "disabled", label: "停用" }]} /></label>
+        <label>备注<textarea value={brandDraft.note} maxLength={200} placeholder="选填" onChange={(event) => setBrandDraft({ ...brandDraft, note: event.target.value })} /></label>
+        {brandError ? <p className="field-error">{brandError}</p> : null}
+      </div>
+      <footer>
+        <button className="secondary-button" type="button" onClick={() => setBrandDraft(null)}>取消</button>
+        <button className="primary-button" type="button" disabled={brandSaving || !brandDraft.name.trim()} onClick={createBrand}>{brandSaving ? "保存中..." : "保存"}</button>
+      </footer>
+    </div>
+  </div> : null}
   </div>;
 }
 
@@ -692,7 +967,7 @@ function BatchModal({ items, onClose, onConfirm }) {
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const groupCount = new Set(items.map((item) => item.group.id)).size;
-  return <div className="overlay modal-overlay"><div className="batch-modal" role="dialog" aria-modal="true"><header><div><h2>批量设置资料状态</h2><p>{items.length} 个 SKU，来自 {groupCount} 个商品组</p></div><IconButton label="关闭" onClick={onClose}><X /></IconButton></header><label>目标状态<SearchSelect ariaLabel="目标状态" value={status} onChange={setStatus} options={[{ value: "enabled", label: "启用" }, { value: "disabled", label: "停用" }, { value: "draft", label: "转为草稿" }]} /></label><label>变更原因<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={200} /><span className="char-count">{reason.length}/200</span></label><div className="batch-list">{items.map(({ sku, group }) => <div key={sku.id}><ProductImage group={group} small /><span><strong>{sku.id}</strong><small>{group.name} · 当前{STATUS_LABELS[sku.status]}</small></span></div>)}</div><footer><button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="button" disabled={!reason.trim() || saving} onClick={async () => { setSaving(true); await onConfirm(status, reason); setSaving(false); }}>{saving ? "处理中..." : "确认修改"}</button></footer></div></div>;
+  return <div className="overlay modal-overlay"><div className="batch-modal" role="dialog" aria-modal="true"><header><div><h2>批量设置资料状态</h2><p>{items.length} 个 SKU，来自 {groupCount} 个商品组</p></div><IconButton label="关闭" onClick={onClose}><X /></IconButton></header><label>目标状态<SearchSelect ariaLabel="目标状态" value={status} onChange={setStatus} options={[{ value: "enabled", label: "启用" }, { value: "disabled", label: "停用" }, { value: "draft", label: "转为草稿" }]} /></label><label>变更原因<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={200} /><span className="char-count">{reason.length}/200</span></label><div className="batch-list">{items.map(({ sku, group }) => <div key={sku.id}><span><strong>{sku.id}</strong><small>{group.name} · 当前{STATUS_LABELS[sku.status]}</small></span></div>)}</div><footer><button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="button" disabled={!reason.trim() || saving} onClick={async () => { setSaving(true); await onConfirm(status, reason); setSaving(false); }}>{saving ? "处理中..." : "确认修改"}</button></footer></div></div>;
 }
 
 function ImportModal({ groups, onClose, onImported }) {
@@ -717,7 +992,7 @@ function ImportModal({ groups, onClose, onImported }) {
     try { setPreview(await api("/import/preview", { method: "POST", body: JSON.stringify({ rows, mode: nextMode }) })); }
     catch (previewError) { setError(previewError.message); }
   };
-  const template = [CSV_HEADERS, ["DEMO-AF01", "空气滤清器", "滤清器", "DEMO-AF01-001", "MANN", "C 27009", "个", "1", "89", "草稿", "17801-0T020", "丰田", "卡罗拉", "2019", "2023", "", "2ZR", "发动机", "供应商目录", "待核实", ""]];
+  const template = [CSV_HEADERS, ["DEMO-AF01", "空气滤清器", "滤清器", "DEMO-AF01-001", "MANN", "C 27009", "个", "1", "89", "草稿", "17801-0T020", "丰田", "卡罗拉", "2019", "2023", "", "2ZR", "发动机", "供应商目录", "待核实", "", "品牌件", ""]];
   return <div className="overlay modal-overlay"><div className="batch-modal import-modal" role="dialog" aria-modal="true" aria-label="批量导入 SKU"><header><div><h2>批量导入 SKU</h2><p>先预览校验，整批无错误后才能写入</p></div><IconButton label="关闭" onClick={onClose}><X /></IconButton></header>
     <div className="import-toolbar"><button className="secondary-button" type="button" onClick={() => downloadCsv("SKU导入模板.csv", template)}><DownloadSimple /> 下载模板</button><label className="primary-button file-button"><UploadSimple /> 选择 CSV<input type="file" accept=".csv,text/csv" onChange={(event) => previewFile(event.target.files?.[0])} /></label></div>
     {fileName && <p className="selected-file"><FileText />{fileName}</p>}
@@ -771,6 +1046,10 @@ export function App() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [toast, setToast] = useState("");
+  const [imageViewer, setImageViewer] = useState(null);
+  const [imageTarget, setImageTarget] = useState(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const imageInputRef = useRef(null);
   const requestId = useRef(0);
   const lastFilterKey = useRef(null);
 
@@ -808,6 +1087,30 @@ export function App() {
     ["disabled", `已停用 (${catalog.counts.disabled})`],
   ];
 
+  const pickImage = (sku) => {
+    if (!sku?.id) return;
+    setImageTarget(sku);
+    imageInputRef.current?.click();
+  };
+
+  const uploadImage = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !imageTarget) return;
+    setImageBusy(true);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      await api(`/skus/${encodeURIComponent(imageTarget.id)}/image`, { method: "POST", body: JSON.stringify({ dataUrl }) });
+      setToast("商品图已更新");
+      await load({ quiet: true });
+    } catch (uploadError) {
+      setToast(uploadError.message);
+    } finally {
+      setImageBusy(false);
+      setImageTarget(null);
+    }
+  };
+
   return <div className={`app-shell ${view === "sku" ? "" : "is-vehicle"}`}><NavBar
       view={view}
       counts={catalog.counts}
@@ -818,11 +1121,25 @@ export function App() {
       onImport={() => setImportOpen(true)}
       onRefresh={() => load({ quiet: true })}
       onConfigTab={(key) => { setConfigTab(key); setView("config"); }}
-    />{view === "groups" ? <GroupAdmin onToast={setToast} /> : view === "vehicles" ? <VehicleAdmin onToast={setToast} /> : view === "vehicle" ? <VehicleLookup onView={setView} /> : view === "config" ? <DictionaryAdmin key={configTab} initialTab={configTab} onToast={setToast} /> : <main className="workspace"><div className="page-title-row"><div><h1>SKU商品库</h1></div><div className="page-actions"><button className="secondary-button" type="button" onClick={() => setImportOpen(true)}><UploadSimple /> 批量导入</button><button className="primary-button" type="button" onClick={() => setEdit({})}><Plus /> 新增SKU</button><IconButton label="刷新商品" onClick={() => load({ quiet: true })}><ArrowClockwise /></IconButton></div></div><nav className="status-tabs" role="tablist">{tabs.map(([value, label]) => <button role="tab" aria-selected={status === value} className={status === value ? "is-active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}</button>)}</nav><FilterBar search={search} setSearch={setSearch} category={category} setCategory={setCategory} categories={catalog.categories} /><div className="content-area">{loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => load()} /> : catalog.groups.length ? <ProductTable groups={catalog.groups} expanded={expanded} setExpanded={setExpanded} selected={selected} setSelected={setSelected} onDetail={(sku, group) => setDetail({ sku, group })} onEdit={(sku, group) => setEdit({ sku, group })} /> : <EmptyState filtered={Boolean(search || category || status)} onClear={() => { setSearch(""); setCategory(""); setStatus(""); }} onAdd={() => setEdit({})} onImport={() => setImportOpen(true)} />}</div></main>}{view === "sku" && <BottomBar selectedItems={selectedItems} page={catalog.pagination.page} totalPages={catalog.pagination.totalPages} pageSize={catalog.pagination.pageSize} onPage={setPage} onBatch={() => setBatchOpen(true)} onClear={() => setSelected(new Set())} onExport={async () => { try { const data = await api("/export"); const ids = new Set(selectedItems.map(({ sku }) => sku.id)); const items = ids.size ? data.items.filter((item) => ids.has(item.id)) : data.items; downloadCsv(`SKU资料-${new Date().toISOString().slice(0, 10)}.csv`, exportRows(items)); setToast(`已导出 ${items.length} 个 SKU`); } catch (exportError) { setToast(exportError.message); } }} />}
-    {detail && <DetailDrawer selected={detail} onClose={() => setDetail(null)} onEdit={() => { setEdit(detail); setDetail(null); }} />}
+    />{view === "groups" ? <GroupAdmin onToast={setToast} /> : view === "vehicles" ? <VehicleAdmin onToast={setToast} /> : view === "vehicle" ? <VehicleLookup onView={setView} /> : view === "config" ? <DictionaryAdmin key={configTab} initialTab={configTab} onToast={setToast} /> : <main className="workspace"><div className="page-title-row"><div><h1>SKU商品库</h1></div><div className="page-actions"><button className="secondary-button" type="button" onClick={() => setImportOpen(true)}><UploadSimple /> 批量导入</button><button className="primary-button" type="button" onClick={() => setEdit({})}><Plus /> 新增SKU</button><IconButton label="刷新商品" onClick={() => load({ quiet: true })}><ArrowClockwise /></IconButton></div></div><nav className="status-tabs" role="tablist">{tabs.map(([value, label]) => <button role="tab" aria-selected={status === value} className={status === value ? "is-active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}</button>)}</nav><FilterBar search={search} setSearch={setSearch} category={category} setCategory={setCategory} categories={catalog.categories} /><div className="content-area">{loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => load()} /> : catalog.groups.length ? <ProductTable groups={catalog.groups} expanded={expanded} setExpanded={setExpanded} selected={selected} setSelected={setSelected} onDetail={(sku, group) => setDetail({ sku, group })} onEdit={(sku, group) => setEdit({ sku, group })} onViewImage={setImageViewer} onUploadImage={pickImage} onGroupChanged={() => load({ quiet: true })} /> : <EmptyState filtered={Boolean(search || category || status)} onClear={() => { setSearch(""); setCategory(""); setStatus(""); }} onAdd={() => setEdit({})} onImport={() => setImportOpen(true)} />}</div></main>}{view === "sku" && <BottomBar selectedItems={selectedItems} page={catalog.pagination.page} totalPages={catalog.pagination.totalPages} pageSize={catalog.pagination.pageSize} onPage={setPage} onBatch={() => setBatchOpen(true)} onClear={() => setSelected(new Set())} onExport={async () => { try { const data = await api("/export"); const ids = new Set(selectedItems.map(({ sku }) => sku.id)); const items = ids.size ? data.items.filter((item) => ids.has(item.id)) : data.items; downloadCsv(`SKU资料-${new Date().toISOString().slice(0, 10)}.csv`, exportRows(items)); setToast(`已导出 ${items.length} 个 SKU`); } catch (exportError) { setToast(exportError.message); } }} />}
+    {detail && <DetailDrawer selected={detail} onClose={() => setDetail(null)} onEdit={() => { setEdit(detail); setDetail(null); }} onViewImage={setImageViewer} onUploadImage={pickImage} />}
     {edit && <EditDrawer selected={edit} groups={groups} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); setToast(edit.sku ? "SKU 资料已更新" : "SKU 已创建"); load({ quiet: true }); }} onDeleted={() => { setEdit(null); setToast("草稿 SKU 已删除"); load({ quiet: true }); }} />}
     {batchOpen && <BatchModal items={selectedItems} onClose={() => setBatchOpen(false)} onConfirm={async (nextStatus, reason) => { await Promise.all(selectedItems.map(({ sku }) => api(`/skus/${encodeURIComponent(sku.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: nextStatus, reason }) }))); setBatchOpen(false); setSelected(new Set()); setToast(`已更新 ${selectedItems.length} 个 SKU`); load({ quiet: true }); }} />}
     {importOpen && <ImportModal groups={groups} onClose={() => setImportOpen(false)} onImported={(result) => { setImportOpen(false); setToast(`已导入 ${result.valid} 个 SKU`); load({ quiet: true }); }} />}
+    <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={uploadImage} aria-label="上传商品图" />
+    {imageViewer ? <div className="overlay image-viewer" onMouseDown={(event) => { if (event.target === event.currentTarget) setImageViewer(null); }}>
+      <div className="image-viewer-box" role="dialog" aria-modal="true" aria-label={`${imageViewer.id} 商品图`}>
+        <img src={skuImageUrl(imageViewer)} alt={imageViewer.id} />
+        <div className="image-viewer-bar">
+          <span>{imageViewer.id}</span>
+          <div>
+            <button className="secondary-button" type="button" onClick={() => { const target = imageViewer; setImageViewer(null); pickImage(target); }}>更换</button>
+            <button className="secondary-button" type="button" onClick={() => setImageViewer(null)}>关闭</button>
+          </div>
+        </div>
+      </div>
+    </div> : null}
+    {imageBusy ? <div className="image-busy">正在处理图片…</div> : null}
     {toast && <div className="toast" role="status"><CheckCircle weight="fill" /><span><strong>操作成功</strong><small>{toast}</small></span><button type="button" aria-label="关闭提示" onClick={() => setToast("")}><X /></button></div>}
   </div>;
 }

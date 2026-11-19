@@ -115,10 +115,25 @@ test("part types and part sets can be maintained", async () => {
 
 test("brands and units accept new values and reject duplicates", async () => {
   await withApi(async (base) => {
-    const brand = await request(base, "/api/dictionaries/brands", { method: "POST", body: JSON.stringify({ name: "XYZ" }) });
+    const brand = await request(base, "/api/dictionaries/brands", {
+      method: "POST",
+      body: JSON.stringify({ name: "XYZ", alias: "XYZ 汽配", note: "测试品牌", enabled: true }),
+    });
     assert.equal(brand.response.status, 201);
+    assert.equal(brand.body.alias, "XYZ 汽配");
     const duplicate = await request(base, "/api/dictionaries/brands", { method: "POST", body: JSON.stringify({ name: "xyz" }) });
     assert.equal(duplicate.response.status, 409);
+
+    const disabled = await request(base, dictPath("brands", "XYZ"), {
+      method: "PUT",
+      body: JSON.stringify({ enabled: false }),
+    });
+    assert.equal(disabled.body.enabled, 0);
+    const brandList = await request(base, "/api/dictionaries");
+    const stored = brandList.body.brands.find((item) => item.name === "XYZ");
+    assert.equal(stored.enabled, 0);
+    assert.equal(stored.alias, "XYZ 汽配");
+    assert.equal(stored.note, "测试品牌");
 
     const unit = await request(base, "/api/dictionaries/units", { method: "POST", body: JSON.stringify({ name: "箱" }) });
     assert.equal(unit.response.status, 201);

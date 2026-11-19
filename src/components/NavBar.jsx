@@ -8,6 +8,7 @@ const DICT_TABS = [
   ["partTypes", "件类"],
   ["partSets", "套餐"],
   ["brands", "品牌"],
+  ["oemBrands", "整车品牌"],
   ["units", "单位"],
   ["origins", "产地"],
   ["channels", "渠道"],

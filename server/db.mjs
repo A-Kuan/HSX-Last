@@ -54,8 +54,6 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_skus_group ON skus(group_id);
     CREATE INDEX IF NOT EXISTS idx_skus_status ON skus(status);
-    DROP INDEX IF EXISTS idx_skus_brand_part_no;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_skus_brand_part_no ON skus(brand, part_no COLLATE NOCASE) WHERE part_no <> '';
     CREATE TABLE IF NOT EXISTS sku_oe_numbers (
       sku_id TEXT NOT NULL REFERENCES skus(id) ON DELETE CASCADE,
       oe_no TEXT NOT NULL,
@@ -128,6 +126,16 @@ function migrate(db) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS vehicle_vin_rules (
+      prefix TEXT PRIMARY KEY,
+      brand TEXT NOT NULL DEFAULT '',
+      series TEXT NOT NULL DEFAULT '',
+      generation TEXT NOT NULL DEFAULT '',
+      engine TEXT NOT NULL DEFAULT '',
+      year_from INTEGER,
+      year_to INTEGER,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS vehicle_aliases (
       vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
       alias TEXT NOT NULL,
@@ -174,6 +182,11 @@ function migrate(db) {
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS oem_brands (
+      name TEXT PRIMARY KEY,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS origins (
       name TEXT PRIMARY KEY,
       sort_order INTEGER NOT NULL DEFAULT 0,
@@ -190,6 +203,18 @@ function migrate(db) {
   ensureColumn(db, "skus", "channel", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "group_oe_numbers", "breakpoint_date", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "categories", "prefix", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "brands", "alias", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "brands", "note", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "brands", "enabled", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "brands", "updated_at", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "skus", "source_type", "TEXT NOT NULL DEFAULT 'brand'");
+  ensureColumn(db, "skus", "oem_brand", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "skus", "image", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "vehicles", "vin", "TEXT NOT NULL DEFAULT ''");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicles_vin ON vehicles(vin) WHERE vin <> ''");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_skus_part_key ON skus(source_type, oem_brand, brand, part_no COLLATE NOCASE, origin) WHERE part_no <> ''");
+  db.exec("DROP INDEX IF EXISTS idx_skus_brand_part_no");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_skus_oem_brand ON skus(oem_brand)");
 }
 
 function ensureColumn(db, table, column, definition) {
@@ -213,6 +238,7 @@ const seedPartSets = [
 const seedCategories = [["制动片", "ZD"], ["滤清器", "LX"], ["底盘悬挂", "DP"], ["保养件", "BY"]];
 const seedBrands = ["BOSCH", "MANN", "MAHLE", "TRW", "DELPHI", "MOOG", "ATE", "LEMFÖRDER", "SACHS", "SKF", "VALEO", "DENSO", "NGK", "FEBI", "SWAG"];
 const seedUnits = ["个", "件", "套", "盒"];
+const seedOemBrands = ["奥迪", "保时捷", "大众", "宝马", "奔驰", "丰田", "本田", "日产", "别克", "福特"];
 const seedOrigins = ["进口", "国产"];
 const seedChannels = ["4S/服务站", "平行进口", "电商", "批发"];
 
@@ -349,6 +375,17 @@ function ensureGroupOeSeeds(db) {
     FROM sku_oe_numbers o JOIN skus s ON s.id = o.sku_id`).run();
 }
 
+/** 保存 SKU 时把它的 OE 并入组级 OE：只增不删，已存在的组级条目（含断点日期/主号）保持不变。 */
+function mergeSkuOesIntoGroup(db, groupId, oeNumbers = []) {
+  const insert = db.prepare(`INSERT OR IGNORE INTO group_oe_numbers
+    (group_id, oe_no, normalized_oe, is_primary) VALUES (?, ?, ?, 0)`);
+  for (const raw of oeNumbers) {
+    const display = String(raw ?? "").trim();
+    const normalized = normalizeOe(display);
+    if (normalized) insert.run(groupId, display, normalized);
+  }
+}
+
 /** Demo fixtures for tests and local walkthroughs. Never called by openDatabase. */
 export function seedDemoData(db) {
   ensureReferenceData(db);
@@ -370,6 +407,9 @@ export function readSku(db, skuId) {
     unit: sku.unit,
     origin: sku.origin,
     channel: sku.channel,
+    sourceType: sku.source_type || "brand",
+    oemBrand: sku.oem_brand || "",
+    image: sku.image || "",
     packQuantity: sku.pack_quantity,
     price: sku.price,
     status: sku.status,
@@ -419,7 +459,7 @@ function groupOeFields(db, groupId) {
   }));
   const weight = (item) => (item.isPrimary ? Number.MAX_SAFE_INTEGER : (Number(item.breakpointDate) || 0));
   items.sort((left, right) => weight(right) - weight(left) || left.oeNo.localeCompare(right.oeNo));
-  return { oeItems: items, oeNumbers: items.map((item) => item.oeNo), primaryOe: items[0]?.oeNo || "" };
+  return { oeItems: items, oeNumbers: items.map((item) => item.oeNo), primaryOe: items.find((item) => item.isPrimary)?.oeNo || "" };
 }
 
 function groupOeNumbers(db, groupId) {
@@ -440,7 +480,7 @@ function replaceGroupOeNumbers(db, groupId, list, primaryOe = "") {
     if (!normalized) continue;
     rows.push({ display, normalized, breakpointDate: normalizeBreakpoint(raw && typeof raw === "object" ? raw.breakpointDate : "") });
   }
-  const primaryKey = normalizeOe(primaryOe) || rows[0]?.normalized || "";
+  const primaryKey = normalizeOe(primaryOe);
   for (const { display, normalized, breakpointDate } of rows) {
     insert.run(groupId, display, normalized, normalized === primaryKey ? 1 : 0, breakpointDate || "");
   }
@@ -535,6 +575,7 @@ const DICTIONARY_KINDS = {
   units: { table: "units", label: "单位", refTable: "skus", refColumn: "unit" },
   origins: { table: "origins", label: "产地", refTable: "skus", refColumn: "origin" },
   channels: { table: "channels", label: "渠道", refTable: "skus", refColumn: "channel" },
+  "oem-brands": { table: "oem_brands", label: "整车品牌", refTable: "skus", refColumn: "oem_brand" },
 };
 
 function normalizePrefix(value) {
@@ -562,6 +603,10 @@ function ensureDictionarySeeds(db) {
     SELECT DISTINCT TRIM(brand), 500, ? FROM skus WHERE TRIM(brand) <> ''`).run(timestamp);
   const addUnit = db.prepare("INSERT OR IGNORE INTO units (name, sort_order, created_at) VALUES (?, ?, ?)");
   seedUnits.forEach((name, index) => addUnit.run(name, (index + 1) * 10, timestamp));
+  const addOemBrand = db.prepare("INSERT OR IGNORE INTO oem_brands (name, sort_order, created_at) VALUES (?, ?, ?)");
+  seedOemBrands.forEach((name, index) => addOemBrand.run(name, (index + 1) * 10, timestamp));
+  db.prepare(`INSERT OR IGNORE INTO oem_brands (name, sort_order, created_at)
+    SELECT DISTINCT TRIM(brand), 500, ? FROM vehicles WHERE TRIM(brand) <> ''`).run(timestamp);
   db.prepare(`INSERT OR IGNORE INTO units (name, sort_order, created_at)
     SELECT DISTINCT TRIM(unit), 500, ? FROM skus WHERE TRIM(unit) <> ''`).run(timestamp);
   const addOrigin = db.prepare("INSERT OR IGNORE INTO origins (name, sort_order, created_at) VALUES (?, ?, ?)");
@@ -595,8 +640,11 @@ export function listDictionaries(db) {
     categories: db.prepare(`SELECT c.name, c.prefix, c.sort_order AS sortOrder,
         (SELECT COUNT(*) FROM product_groups g WHERE g.category = c.name) AS usageCount
       FROM categories c ORDER BY c.sort_order, c.name`).all(),
-    brands: list("brands", "skus", "brand", "nocase"),
+    brands: db.prepare(`SELECT b.name, b.alias, b.note, b.enabled, b.sort_order AS sortOrder,
+        (SELECT COUNT(*) FROM skus s WHERE s.brand = b.name COLLATE NOCASE) AS usageCount
+      FROM brands b ORDER BY b.sort_order, b.name COLLATE NOCASE`).all(),
     units: list("units", "skus", "unit"),
+    oemBrands: list("oem_brands", "skus", "oem_brand"),
     origins: list("origins", "skus", "origin"),
     channels: list("channels", "skus", "channel"),
     partTypes: partTypes.map((partType) => ({
@@ -626,6 +674,14 @@ export function createDictionaryItem(db, kind, payload = {}) {
     db.prepare("INSERT INTO categories (name, prefix, sort_order, created_at) VALUES (?, ?, ?, ?)").run(name, prefix, sortOrder, now());
     return { name, prefix, sortOrder, usageCount: 0 };
   }
+  if (kind === "brands") {
+    const alias = String(payload.alias ?? "").trim();
+    const note = String(payload.note ?? "").trim();
+    const enabled = payload.enabled === undefined || payload.enabled ? 1 : 0;
+    db.prepare(`INSERT INTO brands (name, alias, note, enabled, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(name, alias, note, enabled, sortOrder, now(), now());
+    return { name, alias, note, enabled, sortOrder, usageCount: 0 };
+  }
   db.prepare(`INSERT INTO ${config.table} (name, sort_order, created_at) VALUES (?, ?, ?)`).run(name, sortOrder, now());
   return { name, sortOrder, usageCount: 0 };
 }
@@ -645,6 +701,14 @@ export function updateDictionaryItem(db, kind, id, payload = {}) {
       db.prepare("UPDATE categories SET prefix = ? WHERE name = ?").run(prefix, name);
       return { name, prefix, sortOrder: current.sort_order, usageCount: countDictionaryUsage(db, config, name) };
     }
+    if (kind === "brands") {
+      const alias = payload.alias === undefined ? current.alias : String(payload.alias).trim();
+      const note = payload.note === undefined ? current.note : String(payload.note).trim();
+      const enabled = payload.enabled === undefined ? current.enabled : (payload.enabled ? 1 : 0);
+      db.prepare("UPDATE brands SET alias = ?, note = ?, enabled = ?, updated_at = ? WHERE name = ?")
+        .run(alias, note, enabled, now(), name);
+      return { name, alias, note, enabled, sortOrder: current.sort_order, usageCount: countDictionaryUsage(db, config, name) };
+    }
     return { name, sortOrder: current.sort_order, usageCount: countDictionaryUsage(db, config, name) };
   }
   if (db.prepare(`SELECT 1 FROM ${config.table} WHERE name = ? COLLATE NOCASE`).get(name)) {
@@ -655,6 +719,17 @@ export function updateDictionaryItem(db, kind, id, payload = {}) {
     if (kind === "categories") {
       db.prepare("INSERT INTO categories (name, prefix, sort_order, created_at) VALUES (?, ?, ?, ?)")
         .run(name, normalizePrefix(payload.prefix ?? current.prefix), current.sort_order, current.created_at);
+    } else if (kind === "brands") {
+      db.prepare(`INSERT INTO brands (name, alias, note, enabled, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+        name,
+        payload.alias === undefined ? current.alias : String(payload.alias).trim(),
+        payload.note === undefined ? current.note : String(payload.note).trim(),
+        payload.enabled === undefined ? current.enabled : (payload.enabled ? 1 : 0),
+        current.sort_order,
+        current.created_at,
+        now(),
+      );
     } else {
       db.prepare(`INSERT INTO ${config.table} (name, sort_order, created_at) VALUES (?, ?, ?)`).run(name, current.sort_order, current.created_at);
     }
@@ -669,6 +744,16 @@ export function updateDictionaryItem(db, kind, id, payload = {}) {
     return {
       name,
       prefix: normalizePrefix(payload.prefix ?? current.prefix),
+      sortOrder: current.sort_order,
+      usageCount: countDictionaryUsage(db, config, name),
+    };
+  }
+  if (kind === "brands") {
+    return {
+      name,
+      alias: payload.alias === undefined ? current.alias : String(payload.alias).trim(),
+      note: payload.note === undefined ? current.note : String(payload.note).trim(),
+      enabled: payload.enabled === undefined ? current.enabled : (payload.enabled ? 1 : 0),
       sortOrder: current.sort_order,
       usageCount: countDictionaryUsage(db, config, name),
     };
@@ -822,7 +907,7 @@ export function updateGroup(db, groupId, payload = {}) {
     db.prepare("UPDATE product_groups SET name = ?, reference = ?, category = ?, position = ?, note = ?, image = ?, updated_at = ? WHERE id = ?")
       .run(name, reference, category, position, note, image, now(), groupId);
     if (payload.oeNumbers !== undefined) replaceGroupOeNumbers(db, groupId, payload.oeNumbers, payload.primaryOe);
-    else if (payload.primaryOe) db.prepare("UPDATE group_oe_numbers SET is_primary = CASE WHEN normalized_oe = ? THEN 1 ELSE 0 END WHERE group_id = ?").run(normalizeOe(payload.primaryOe), groupId);
+    else if (payload.primaryOe !== undefined) db.prepare("UPDATE group_oe_numbers SET is_primary = CASE WHEN normalized_oe = ? THEN 1 ELSE 0 END WHERE group_id = ?").run(normalizeOe(payload.primaryOe), groupId);
     registerDictionaryValue(db, "categories", category);
     db.exec("COMMIT");
   } catch (error) {
@@ -888,7 +973,7 @@ export function mergeGroups(db, sourceId, targetId) {
 }
 
 export function exportSkuRows(db) {
-  const rows = db.prepare(`SELECT s.id, s.brand, s.part_no, s.unit, s.pack_quantity, s.price, s.status, s.note,
+  const rows = db.prepare(`SELECT s.id, s.brand, s.oem_brand, s.source_type, s.part_no, s.unit, s.pack_quantity, s.price, s.status, s.note,
     g.id AS group_id, g.name AS group_name, g.reference AS group_reference, g.category AS group_category
     FROM skus s JOIN product_groups g ON g.id = s.group_id ORDER BY g.name COLLATE NOCASE, s.id`).all();
   const oeStmt = db.prepare("SELECT oe_no FROM sku_oe_numbers WHERE sku_id = ? ORDER BY is_primary DESC, oe_no");
@@ -900,6 +985,8 @@ export function exportSkuRows(db) {
     category: row.group_category,
     id: row.id,
     brand: row.brand,
+    oemBrand: row.oem_brand,
+    sourceType: row.source_type,
     partNo: row.part_no,
     unit: row.unit,
     packQuantity: row.pack_quantity,
@@ -943,7 +1030,8 @@ export function listCatalog(db, filters = {}) {
   const byGroup = new Map();
   for (const sku of skuRows) {
     const oeNumbers = sku.oe_numbers ? sku.oe_numbers.split("||") : [];
-    const matchText = `${sku.id} ${sku.brand} ${sku.part_no} ${oeNumbers.join(" ")}`.toLowerCase();
+    const sourceName = sku.source_type === "oem" ? `${sku.oem_brand || ""}原厂 原厂件` : sku.source_type === "used" ? "拆车件" : "品牌件";
+    const matchText = `${sku.id} ${sku.brand} ${sku.oem_brand || ""} ${sourceName} ${sku.part_no} ${oeNumbers.join(" ")}`.toLowerCase();
     const item = { ...sku, oeNumbers, matchesSearch: !search || matchText.includes(search) || matchesOe(oeNumbers) };
     if (!byGroup.has(sku.group_id)) byGroup.set(sku.group_id, []);
     byGroup.get(sku.group_id).push(item);
@@ -957,7 +1045,7 @@ export function listCatalog(db, filters = {}) {
       || `${group.name} ${group.reference} ${group.category} ${group.position} ${groupOes.join(" ")}`.toLowerCase().includes(search)
       || matchesOe(groupOes);
     const skus = allSkus.filter((sku) => {
-      const incomplete = !sku.brand || !sku.oeNumbers.length;
+      const incomplete = !(sku.brand || sku.oem_brand) || !sku.oeNumbers.length;
       const statusMatches = !status || (status === "incomplete" ? incomplete : sku.status === status);
       return statusMatches && (groupMatches || sku.matchesSearch);
     });
@@ -992,6 +1080,9 @@ export function listCatalog(db, filters = {}) {
       unit: sku.unit,
       origin: sku.origin,
       channel: sku.channel,
+      sourceType: sku.source_type || "brand",
+      oemBrand: sku.oem_brand || "",
+      image: sku.image || "",
       packQuantity: sku.pack_quantity,
       price: sku.price,
       status: sku.status,
@@ -1006,7 +1097,7 @@ export function listCatalog(db, filters = {}) {
     COUNT(*) AS allCount,
     SUM(status = 'draft') AS draftCount,
     SUM(status = 'disabled') AS disabledCount,
-    SUM(brand = '' OR NOT EXISTS (SELECT 1 FROM sku_oe_numbers o WHERE o.sku_id = skus.id)) AS incompleteCount
+    SUM(((brand = '' AND oem_brand = '') OR NOT EXISTS (SELECT 1 FROM sku_oe_numbers o WHERE o.sku_id = skus.id))) AS incompleteCount
     FROM skus`).get();
 
   return {
@@ -1022,6 +1113,9 @@ export function listCatalog(db, filters = {}) {
   };
 }
 
+const SKU_SOURCES = ["oem", "brand", "used"];
+const normalizeSourceType = (value) => (SKU_SOURCES.includes(value) ? value : "brand");
+
 function validatePayload(payload, { creating }) {
   const errors = {};
   const sku = payload?.sku || {};
@@ -1031,6 +1125,9 @@ function validatePayload(payload, { creating }) {
   if (!group.id && !String(group.reference || "").trim()) errors.groupReference = "请填写商品组参考编码";
   if (!group.id && !String(group.category || "").trim()) errors.category = "请选择配件品类";
   if (!String(sku.unit || "").trim()) errors.unit = "请选择基础单位";
+  if (normalizeSourceType(sku.sourceType) === "oem" && !String(sku.oemBrand || "").trim()) {
+    errors.oemBrand = "请选择整车品牌";
+  }
   if (!Number.isInteger(Number(sku.packQuantity)) || Number(sku.packQuantity) < 1) errors.packQuantity = "包装数量必须为正整数";
   if (String(sku.price ?? "").trim() !== "" && (!Number.isFinite(Number(sku.price)) || Number(sku.price) < 0)) errors.price = "销售价不能小于 0";
   const oeNumbers = (payload?.oeNumbers || []).map((item) => String(item).trim()).filter(Boolean);
@@ -1125,15 +1222,19 @@ export function createSku(db, payload) {
   try {
     const groupId = resolveGroup(db, payload.group);
     const timestamp = now();
-    db.prepare(`INSERT INTO skus (id, group_id, brand, part_no, unit, origin, channel, pack_quantity, price, status, note, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    const sourceType = normalizeSourceType(payload.sku.sourceType);
+    const oemBrand = sourceType === "oem" ? String(payload.sku.oemBrand || "").trim() : "";
+    db.prepare(`INSERT INTO skus (id, group_id, brand, part_no, unit, origin, channel, source_type, oem_brand, pack_quantity, price, status, note, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       skuId,
       groupId,
-      String(payload.sku.brand || "").trim(),
-      String(payload.sku.partNo).trim(),
+      sourceType === "oem" ? "" : String(payload.sku.brand || "").trim(),
+      sourceType === "oem" ? "" : String(payload.sku.partNo).trim(),
       String(payload.sku.unit).trim(),
       String(payload.sku.origin || "").trim(),
       String(payload.sku.channel || "").trim(),
+      sourceType,
+      oemBrand,
       Number(payload.sku.packQuantity),
       payload.sku.price === "" || payload.sku.price === undefined || payload.sku.price === null ? 0 : Number(payload.sku.price),
       ["draft", "enabled", "disabled"].includes(payload.sku.status) ? payload.sku.status : "draft",
@@ -1145,7 +1246,9 @@ export function createSku(db, payload) {
     registerDictionaryValue(db, "units", payload.sku.unit);
     registerDictionaryValue(db, "origins", payload.sku.origin);
     registerDictionaryValue(db, "channels", payload.sku.channel);
+    registerDictionaryValue(db, "oem-brands", oemBrand);
     replaceRelations(db, skuId, payload.oeNumbers, payload.fitments);
+    mergeSkuOesIntoGroup(db, groupId, payload.oeNumbers);
     const created = readSku(db, skuId);
     logActivity(db, { skuId, action: "create", summary: "创建 SKU", after: created });
     db.exec("RELEASE SAVEPOINT create_sku");
@@ -1168,14 +1271,18 @@ export function updateSku(db, skuId, payload) {
   db.exec("SAVEPOINT update_sku");
   try {
     const groupId = resolveGroup(db, payload.group);
-    db.prepare(`UPDATE skus SET group_id = ?, brand = ?, part_no = ?, unit = ?, origin = ?, channel = ?, pack_quantity = ?, price = ?, status = ?, note = ?, updated_at = ?
+    const sourceType = normalizeSourceType(payload.sku.sourceType);
+    const oemBrand = sourceType === "oem" ? String(payload.sku.oemBrand || "").trim() : "";
+    db.prepare(`UPDATE skus SET group_id = ?, brand = ?, part_no = ?, unit = ?, origin = ?, channel = ?, source_type = ?, oem_brand = ?, pack_quantity = ?, price = ?, status = ?, note = ?, updated_at = ?
       WHERE id = ?`).run(
       groupId,
-      String(payload.sku.brand || "").trim(),
-      String(payload.sku.partNo).trim(),
+      sourceType === "oem" ? "" : String(payload.sku.brand || "").trim(),
+      sourceType === "oem" ? "" : String(payload.sku.partNo).trim(),
       String(payload.sku.unit).trim(),
       String(payload.sku.origin || "").trim(),
       String(payload.sku.channel || "").trim(),
+      sourceType,
+      oemBrand,
       Number(payload.sku.packQuantity),
       payload.sku.price === "" || payload.sku.price === undefined || payload.sku.price === null ? 0 : Number(payload.sku.price),
       ["draft", "enabled", "disabled"].includes(payload.sku.status) ? payload.sku.status : existing.status,
@@ -1187,7 +1294,9 @@ export function updateSku(db, skuId, payload) {
     registerDictionaryValue(db, "units", payload.sku.unit);
     registerDictionaryValue(db, "origins", payload.sku.origin);
     registerDictionaryValue(db, "channels", payload.sku.channel);
+    registerDictionaryValue(db, "oem-brands", oemBrand);
     replaceRelations(db, skuId, payload.oeNumbers, payload.fitments);
+    mergeSkuOesIntoGroup(db, groupId, payload.oeNumbers);
     const updated = readSku(db, skuId);
     logActivity(db, { skuId, action: "update", summary: "更新 SKU 资料", before: existing, after: updated });
     db.exec("RELEASE SAVEPOINT update_sku");
@@ -1261,6 +1370,24 @@ export function updateStatus(db, skuId, status, reason = "") {
   return updated;
 }
 
+export function updateSkuImage(db, skuId, filename) {
+  const existing = readSku(db, skuId);
+  if (!existing) {
+    const error = new Error("SKU 不存在");
+    error.status = 404;
+    throw error;
+  }
+  db.prepare("UPDATE skus SET image = ?, updated_at = ? WHERE id = ?").run(filename || "", now(), skuId);
+  logActivity(db, {
+    skuId,
+    action: "image",
+    summary: filename ? "更新商品图" : "移除商品图",
+    before: { image: existing.image },
+    after: { image: filename || "" },
+  });
+  return readSku(db, skuId);
+}
+
 export function deleteDraft(db, skuId) {
   const existing = readSku(db, skuId);
   if (!existing) return false;
@@ -1303,11 +1430,7 @@ function detectPartScope(db, query) {
     if (!text.includes(keyword)) continue;
     return { set: null, partTypes: readPartTypes(db, [partTypeId]), remainder: text.replace(keyword, "") };
   }
-  const fallback = db.prepare("SELECT id, name, note FROM part_sets WHERE id = 'sanlv'").get();
-  const ids = fallback
-    ? db.prepare("SELECT part_type_id FROM part_set_items WHERE set_id = 'sanlv' ORDER BY sort_order").all().map((row) => row.part_type_id)
-    : [];
-  return { set: fallback || null, partTypes: readPartTypes(db, ids), remainder: text };
+  return { set: null, fallback: true, partTypes: [], remainder: text };
 }
 
 function scoreVehicle(vehicle, aliases, needle) {
@@ -1319,6 +1442,8 @@ function scoreVehicle(vehicle, aliases, needle) {
     else if (needle.includes(normalized)) best = Math.max(best, 80 + Math.min(normalized.length, 10));
     else if (normalized.includes(needle) && needle.length >= 2) best = Math.max(best, 60 + Math.min(needle.length, 10));
   }
+  const vin = normalizeText(vehicle.vin);
+  if (vin && needle && (vin === needle || (needle.length >= 6 && vin.endsWith(needle)))) best = Math.max(best, 100);
   const fields = [vehicle.brand, vehicle.series, vehicle.generation, vehicle.platform, `${vehicle.brand}${vehicle.series}`].map(normalizeText).filter(Boolean);
   for (const field of fields) {
     if (field === needle) best = Math.max(best, 95);
@@ -1332,6 +1457,7 @@ const vehicleLabel = (vehicle) => [vehicle.brand, vehicle.series, vehicle.genera
 function presentVehicle(db, vehicle, score = null) {
   return {
     id: vehicle.id,
+    vin: vehicle.vin || "",
     brand: vehicle.brand,
     series: vehicle.series,
     generation: vehicle.generation,
@@ -1348,7 +1474,7 @@ function presentVehicle(db, vehicle, score = null) {
 }
 
 function groupSkus(db, groupId) {
-  return db.prepare(`SELECT s.id, s.brand, s.part_no, s.unit, s.pack_quantity, s.price, s.status,
+  return db.prepare(`SELECT s.id, s.brand, s.oem_brand, s.source_type, s.part_no, s.unit, s.origin, s.channel, s.pack_quantity, s.price, s.status,
       (SELECT GROUP_CONCAT(o.oe_no, '||') FROM sku_oe_numbers o WHERE o.sku_id = s.id) AS oe_numbers
     FROM skus s WHERE s.group_id = ? ORDER BY s.brand COLLATE NOCASE, s.id`).all(groupId).map((sku) => ({
     id: sku.id,
@@ -1357,6 +1483,9 @@ function groupSkus(db, groupId) {
     unit: sku.unit,
     origin: sku.origin,
     channel: sku.channel,
+    sourceType: sku.source_type || "brand",
+    oemBrand: sku.oem_brand || "",
+    image: sku.image || "",
     packQuantity: sku.pack_quantity,
     price: sku.price,
     status: sku.status,
@@ -1429,6 +1558,66 @@ function normalizeVehicleProducts(db, list) {
   return rows;
 }
 
+const VIN_WMI = {
+  WP0: "保时捷", WP1: "保时捷",
+  WVW: "大众", WV1: "大众", WAU: "奥迪",
+  WBA: "宝马", WBS: "宝马", WDD: "奔驰", WDB: "奔驰",
+  JHM: "本田", JTD: "丰田", JTJ: "雷克萨斯",
+  LFV: "大众", LSV: "大众", LGB: "日产", LSG: "别克", LDC: "标致",
+};
+const VIN_YEARS = {
+  A: 2010, B: 2011, C: 2012, D: 2013, E: 2014, F: 2015, G: 2016, H: 2017,
+  J: 2018, K: 2019, L: 2020, M: 2021, N: 2022, P: 2023, R: 2024, S: 2025,
+  T: 2026, V: 2027, W: 2028, X: 2029, Y: 2030,
+  "1": 2001, "2": 2002, "3": 2003, "4": 2004, "5": 2005, "6": 2006, "7": 2007, "8": 2008, "9": 2009,
+};
+const VIN_PLANTS = { L: "莱比锡", P: "斯图加特", B: "布拉迪斯拉发", S: "斯图加特" };
+
+function findVinRule(db, vin) {
+  return db.prepare("SELECT * FROM vehicle_vin_rules WHERE ? LIKE prefix || '%' ORDER BY LENGTH(prefix) DESC LIMIT 1").get(vin) || null;
+}
+
+function upsertVinRule(db, input) {
+  if (!input.vin) return;
+  const prefix = input.vin.slice(0, 8);
+  db.prepare(`INSERT INTO vehicle_vin_rules (prefix, brand, series, generation, engine, year_from, year_to, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(prefix) DO UPDATE SET brand = excluded.brand, series = excluded.series, generation = excluded.generation,
+      engine = excluded.engine, year_from = excluded.year_from, year_to = excluded.year_to, updated_at = excluded.updated_at`)
+    .run(prefix, input.brand, input.series, input.generation, input.engine, input.yearFrom, input.yearTo, now());
+}
+
+export function decodeVin(db, rawVin = "") {
+  const vin = String(rawVin || "").trim().toUpperCase();
+  const valid = /^[A-HJ-NPR-Z0-9]{17}$/.test(vin);
+  const rule = valid ? findVinRule(db, vin) : null;
+  return {
+    vin,
+    valid,
+    wmi: vin.slice(0, 3),
+    brand: VIN_WMI[vin.slice(0, 3)] || "",
+    year: valid ? (VIN_YEARS[vin[9]] || null) : null,
+    plant: valid ? (VIN_PLANTS[vin[10]] || "") : "",
+    rule: rule ? {
+      prefix: rule.prefix,
+      brand: rule.brand,
+      series: rule.series,
+      generation: rule.generation,
+      engine: rule.engine,
+      yearFrom: rule.year_from,
+      yearTo: rule.year_to,
+    } : null,
+  };
+}
+
+export function listVinRules(db) {
+  return db.prepare("SELECT prefix, brand, series, generation, engine, year_from AS yearFrom, year_to AS yearTo, updated_at AS updatedAt FROM vehicle_vin_rules ORDER BY updated_at DESC").all();
+}
+
+export function deleteVinRule(db, prefix) {
+  return db.prepare("DELETE FROM vehicle_vin_rules WHERE prefix = ?").run(String(prefix || "").toUpperCase()).changes > 0;
+}
+
 function normalizeVehicleInput(db, payload = {}) {
   const brand = String(payload.brand || "").trim();
   const series = String(payload.series || "").trim();
@@ -1442,6 +1631,8 @@ function normalizeVehicleInput(db, payload = {}) {
   if (yearFrom !== null && yearTo !== null && Number.isFinite(yearFrom) && Number.isFinite(yearTo) && yearFrom > yearTo) {
     details.yearTo = "结束年款不能早于起始年款";
   }
+  const vin = String(payload.vin || "").trim().toUpperCase();
+  if (vin && !/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) details.vin = "VIN 需为 17 位且不含 I/O/Q";
   if (Object.keys(details).length) {
     const error = new Error("车型资料不完整");
     error.status = 422;
@@ -1449,6 +1640,7 @@ function normalizeVehicleInput(db, payload = {}) {
     throw error;
   }
   return {
+    vin,
     brand,
     series,
     generation: String(payload.generation || "").trim(),
@@ -1515,17 +1707,24 @@ export function readVehicle(db, vehicleId) {
 
 export function createVehicle(db, payload) {
   const input = normalizeVehicleInput(db, payload);
+  if (input.vin && db.prepare("SELECT 1 FROM vehicles WHERE vin = ?").get(input.vin)) {
+    const error = new Error("VIN 已存在");
+    error.status = 409;
+    error.details = { vin: "该 VIN 已存在" };
+    throw error;
+  }
   const timestamp = now();
   db.exec("BEGIN");
   try {
     const id = uniqueVehicleId(db, vehicleIdBase(input));
-    db.prepare(`INSERT INTO vehicles (id, brand, series, generation, platform, year_from, year_to, engine, body, drive, note, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      id, input.brand, input.series, input.generation, input.platform, input.yearFrom, input.yearTo,
+    db.prepare(`INSERT INTO vehicles (id, vin, brand, series, generation, platform, year_from, year_to, engine, body, drive, note, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, input.vin, input.brand, input.series, input.generation, input.platform, input.yearFrom, input.yearTo,
       input.engine, input.body, input.drive, input.note, timestamp, timestamp,
     );
     replaceVehicleAliases(db, id, input.aliases);
     replaceVehicleProducts(db, id, input.products);
+    upsertVinRule(db, input);
     db.exec("COMMIT");
     return readVehicle(db, id);
   } catch (error) {
@@ -1542,15 +1741,25 @@ export function updateVehicle(db, vehicleId, payload) {
     throw error;
   }
   const input = normalizeVehicleInput(db, payload);
+  if (input.vin) {
+    const clash = db.prepare("SELECT 1 FROM vehicles WHERE vin = ? AND id <> ?").get(input.vin, vehicleId);
+    if (clash) {
+      const error = new Error("VIN 已存在");
+      error.status = 409;
+      error.details = { vin: "该 VIN 已存在" };
+      throw error;
+    }
+  }
   db.exec("BEGIN");
   try {
-    db.prepare(`UPDATE vehicles SET brand = ?, series = ?, generation = ?, platform = ?, year_from = ?, year_to = ?,
+    db.prepare(`UPDATE vehicles SET vin = ?, brand = ?, series = ?, generation = ?, platform = ?, year_from = ?, year_to = ?,
       engine = ?, body = ?, drive = ?, note = ?, updated_at = ? WHERE id = ?`).run(
-      input.brand, input.series, input.generation, input.platform, input.yearFrom, input.yearTo,
+      input.vin, input.brand, input.series, input.generation, input.platform, input.yearFrom, input.yearTo,
       input.engine, input.body, input.drive, input.note, now(), vehicleId,
     );
     replaceVehicleAliases(db, vehicleId, input.aliases);
     replaceVehicleProducts(db, vehicleId, input.products);
+    upsertVinRule(db, input);
     db.exec("COMMIT");
     return readVehicle(db, vehicleId);
   } catch (error) {
@@ -1565,9 +1774,9 @@ export function deleteVehicle(db, vehicleId) {
 }
 
 function describeRelationSku(db, skuId) {
-  const sku = db.prepare(`SELECT s.id, s.brand, s.part_no, s.price, s.status, g.name AS group_name
+  const sku = db.prepare(`SELECT s.id, s.brand, s.oem_brand, s.source_type, s.part_no, s.price, s.status, g.name AS group_name
     FROM skus s JOIN product_groups g ON g.id = s.group_id WHERE s.id = ?`).get(skuId);
-  return sku ? { id: sku.id, brand: sku.brand, partNo: sku.part_no, price: sku.price, status: sku.status, groupName: sku.group_name } : null;
+  return sku ? { id: sku.id, brand: sku.brand, oemBrand: sku.oem_brand, sourceType: sku.source_type, partNo: sku.part_no, price: sku.price, status: sku.status, groupName: sku.group_name } : null;
 }
 
 function supersedeChain(db, skuId) {
@@ -1687,6 +1896,15 @@ export function lookupVehicleParts(db, rawQuery = "") {
       g.name, g.reference, g.category, g.image
     FROM vehicle_products vp JOIN product_groups g ON g.id = vp.group_id
     WHERE vp.vehicle_id = ?`).all(best.vehicle.id);
+  if (scope.fallback) {
+    const linked = new Set(links.map((link) => link.part_type_id));
+    const sanlv = db.prepare("SELECT part_type_id FROM part_set_items WHERE set_id = 'sanlv'").all().map((row) => row.part_type_id);
+    const ids = db.prepare("SELECT id FROM part_types ORDER BY sort_order, name").all()
+      .map((row) => row.id)
+      .filter((id) => linked.has(id) || sanlv.includes(id));
+    scope.partTypes = readPartTypes(db, ids);
+    scopeInfo.partTypes = scope.partTypes;
+  }
   const categories = scope.partTypes.map((partType) => ({
     partType,
     items: links.filter((link) => link.part_type_id === partType.id).map((link) => ({

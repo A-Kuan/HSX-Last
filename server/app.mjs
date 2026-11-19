@@ -1,11 +1,13 @@
 import { createServer } from "node:http";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
-  addSkuRelation, createDictionaryItem, createGroup, createSku, createVehicle, deleteDictionaryItem, deleteDraft,
-  deleteGroup, deleteSkuRelation,
+  addSkuRelation, createDictionaryItem, createGroup, createSku, createVehicle, decodeVin, deleteDictionaryItem, deleteDraft,
+  deleteGroup, deleteSkuRelation, deleteVinRule,
   deleteVehicle, exportSkuRows, importSkuRows,
-  listActivity, listBrands, listCatalog, listDictionaries, listGroups, listPartTypes, listSkuRelations, listVehicles,
+  listActivity, listBrands, listCatalog, listDictionaries, listGroups, listPartTypes, listSkuRelations, listVehicles, listVinRules,
   lookupVehicleParts, mergeGroups, openDatabase, previewGroupMerge, readSku,
-  readVehicle, updateDictionaryItem, updateGroup, updateSku, updateStatus, updateVehicle,
+  readVehicle, updateDictionaryItem, updateGroup, updateSku, updateSkuImage, updateStatus, updateVehicle,
 } from "./db.mjs";
 
 const json = (res, status, body) => {
@@ -46,7 +48,38 @@ async function readJson(req) {
 
 const apiPath = (pathname) => pathname.replace(/^\/hsx-sku/, "");
 
-export function createApp({ db = openDatabase() } = {}) {
+const IMAGE_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+
+export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPLOAD_DIR || resolve("data/uploads") } = {}) {
+  const storeImage = (skuId, dataUrl) => {
+    const match = /^data:image\/(png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ""));
+    if (!match) {
+      const error = new Error("图片格式不支持");
+      error.status = 422;
+      throw error;
+    }
+    const extension = match[1].toLowerCase() === "jpeg" ? "jpg" : match[1].toLowerCase();
+    const buffer = Buffer.from(match[2], "base64");
+    if (buffer.length > 4 * 1024 * 1024) {
+      const error = new Error("图片不能超过 4MB");
+      error.status = 413;
+      throw error;
+    }
+    mkdirSync(uploadDir, { recursive: true });
+    const base = String(skuId).replace(/[^a-zA-Z0-9_-]+/g, "_");
+    const filename = `sku-${base}-${Date.now().toString(36)}.${extension}`;
+    writeFileSync(join(uploadDir, filename), buffer);
+    return filename;
+  };
+  const applyImage = (skuId, previous, dataUrl) => {
+    const filename = storeImage(skuId, dataUrl);
+    const saved = updateSkuImage(db, skuId, filename);
+    if (previous && previous !== filename) {
+      try { unlinkSync(join(uploadDir, previous)); } catch { /* 旧图已不存在 */ }
+    }
+    return saved;
+  };
+
   return createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
     const pathname = apiPath(requestUrl.pathname);
@@ -103,6 +136,17 @@ export function createApp({ db = openDatabase() } = {}) {
         deleteGroup(db, decodeURIComponent(groupMatch[1]), { force });
         return noContent(res);
       }
+      if (req.method === "GET" && pathname === "/api/vin/decode") {
+        return json(res, 200, decodeVin(db, requestUrl.searchParams.get("vin") || ""));
+      }
+      if (req.method === "GET" && pathname === "/api/vin/rules") {
+        return json(res, 200, { items: listVinRules(db) });
+      }
+      const vinRuleMatch = pathname.match(/^\/api\/vin\/rules\/([^/]+)$/);
+      if (req.method === "DELETE" && vinRuleMatch) {
+        deleteVinRule(db, decodeURIComponent(vinRuleMatch[1]));
+        return noContent(res);
+      }
       if (req.method === "GET" && pathname === "/api/vehicles") {
         return json(res, 200, { items: listVehicles(db) });
       }
@@ -140,10 +184,40 @@ export function createApp({ db = openDatabase() } = {}) {
         return json(res, result.errors.length ? 422 : 200, result);
       }
       const skuMatch = pathname.match(/^\/api\/skus\/([^/]+)$/);
+      const skuImageMatch = pathname.match(/^\/api\/skus\/([^/]+)\/image$/);
       const statusMatch = pathname.match(/^\/api\/skus\/([^/]+)\/status$/);
       const activityMatch = pathname.match(/^\/api\/skus\/([^/]+)\/activity$/);
       const relationsMatch = pathname.match(/^\/api\/skus\/([^/]+)\/relations$/);
       const relationMatch = pathname.match(/^\/api\/relations\/(\d+)$/);
+      if (skuImageMatch && req.method === "GET") {
+        const sku = readSku(db, decodeURIComponent(skuImageMatch[1]));
+        if (!sku || !sku.image) return json(res, 404, { error: "没有商品图" });
+        const file = join(uploadDir, sku.image);
+        if (!existsSync(file)) return json(res, 404, { error: "图片文件不存在" });
+        const extension = sku.image.split(".").pop().toLowerCase();
+        res.writeHead(200, {
+          "content-type": IMAGE_TYPES[extension] || "application/octet-stream",
+          "cache-control": "private, max-age=60",
+          "x-content-type-options": "nosniff",
+        });
+        res.end(readFileSync(file));
+        return;
+      }
+      if (skuImageMatch && req.method === "POST") {
+        const skuId = decodeURIComponent(skuImageMatch[1]);
+        const body = await readJson(req);
+        const previous = readSku(db, skuId)?.image || "";
+        return json(res, 200, applyImage(skuId, previous, body.dataUrl));
+      }
+      if (skuImageMatch && req.method === "DELETE") {
+        const skuId = decodeURIComponent(skuImageMatch[1]);
+        const previous = readSku(db, skuId)?.image || "";
+        if (previous) {
+          try { unlinkSync(join(uploadDir, previous)); } catch { /* 忽略缺失文件 */ }
+        }
+        updateSkuImage(db, skuId, "");
+        return noContent(res);
+      }
       if (req.method === "GET" && relationsMatch) {
         return json(res, 200, listSkuRelations(db, decodeURIComponent(relationsMatch[1])));
       }
@@ -162,10 +236,18 @@ export function createApp({ db = openDatabase() } = {}) {
         return json(res, 200, { items: listActivity(db, decodeURIComponent(activityMatch[1])) });
       }
       if (req.method === "POST" && pathname === "/api/skus") {
-        return json(res, 201, createSku(db, await readJson(req)));
+        const body = await readJson(req);
+        const created = createSku(db, body);
+        if (body.imageDataUrl) return json(res, 201, applyImage(created.id, "", body.imageDataUrl));
+        return json(res, 201, created);
       }
       if (req.method === "PUT" && skuMatch) {
-        return json(res, 200, updateSku(db, decodeURIComponent(skuMatch[1]), await readJson(req)));
+        const skuId = decodeURIComponent(skuMatch[1]);
+        const body = await readJson(req);
+        const updated = updateSku(db, skuId, body);
+        if (body.imageDataUrl) return json(res, 200, applyImage(skuId, updated.image, body.imageDataUrl));
+        if (body.removeImage) return json(res, 200, updateSkuImage(db, skuId, ""));
+        return json(res, 200, updated);
       }
       if (req.method === "PATCH" && statusMatch) {
         const body = await readJson(req);

@@ -2,13 +2,18 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  addSkuRelation, createDictionaryItem, createGroup, createSku, createVehicle, decodeVin, deleteDictionaryItem, deleteDraft,
-  deleteGroup, deleteSkuRelation, deleteVinRule,
+  addSkuRelation, createDictionaryItem, createGroup, createSku, createVehicle, deleteDictionaryItem, deleteGroup,
+  deleteSku, deleteSkuRelation,
   deleteVehicle, exportSkuRows, importSkuRows,
-  listActivity, listBrands, listCatalog, listDictionaries, listGroups, listPartTypes, listSkuRelations, listVehicles, listVinRules,
-  lookupVehicleParts, mergeGroups, openDatabase, previewGroupMerge, readSku,
+  createVehicleGeneration, deleteVehicleGeneration,
+  listActivity, listBrands, listCatalog, listDictionaries, listGroups, listPartTypes, listSkuRelations, listVehicles,
+  listVehicleGenerations, lookupVehicleParts, mergeGroups, openDatabase, previewGroupMerge, readEpcVinCache, readSku,
   readVehicle, updateDictionaryItem, updateGroup, updateSku, updateSkuImage, updateStatus, updateVehicle,
+  updateVehicleGeneration, resolveVehicleGeneration,
+  writeEpcVinCache,
 } from "./db.mjs";
+import { decodeVinViaEpc, EPC_CACHE_VERSION, readEpcQuota, readEpcStatus } from "./epc.mjs";
+import { loadCatalog, loadGroupCounts, loadParts, loadSubgroups } from "./epc-catalog.mjs";
 
 const json = (res, status, body) => {
   const data = JSON.stringify(body);
@@ -136,15 +141,64 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
         deleteGroup(db, decodeURIComponent(groupMatch[1]), { force });
         return noContent(res);
       }
-      if (req.method === "GET" && pathname === "/api/vin/decode") {
-        return json(res, 200, decodeVin(db, requestUrl.searchParams.get("vin") || ""));
+      if (req.method === "GET" && pathname === "/api/vin/epc/status") {
+        return json(res, 200, await readEpcStatus());
       }
-      if (req.method === "GET" && pathname === "/api/vin/rules") {
-        return json(res, 200, { items: listVinRules(db) });
+      if (req.method === "GET" && pathname === "/api/vin/epc") {
+        const vin = String(requestUrl.searchParams.get("vin") || "").trim().toUpperCase();
+        if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) {
+          return json(res, 422, { error: "VIN 应为 17 位字母数字，且不含 I、O、Q" });
+        }
+        const fresh = requestUrl.searchParams.get("fresh") === "1";
+        const cached = fresh ? null : readEpcVinCache(db, vin);
+        if (cached && cached.version === EPC_CACHE_VERSION) {
+          const resolved = resolveVehicleGeneration(db, cached.series, cached.chassisCode);
+          return json(res, 200, { ...cached, ...resolved, cached: true });
+        }
+        const decoded = await decodeVinViaEpc(vin, (series, chassis) => resolveVehicleGeneration(db, series, chassis));
+        writeEpcVinCache(db, vin, decoded);
+        let quota = null;
+        try { quota = await readEpcQuota(); } catch { /* 配额不影响解析结果 */ }
+        return json(res, 200, { ...decoded, cached: false, quota });
       }
-      const vinRuleMatch = pathname.match(/^\/api\/vin\/rules\/([^/]+)$/);
-      if (req.method === "DELETE" && vinRuleMatch) {
-        deleteVinRule(db, decodeURIComponent(vinRuleMatch[1]));
+      const epcVin = () => String(requestUrl.searchParams.get("vin") || "").trim().toUpperCase();
+      const validEpcVin = (vin) => /^[A-HJ-NPR-Z0-9]{17}$/.test(vin);
+      if (req.method === "GET" && pathname === "/api/epc/catalog") {
+        const vin = epcVin();
+        if (!validEpcVin(vin)) return json(res, 422, { error: "VIN 应为 17 位字母数字，且不含 I、O、Q" });
+        return json(res, 200, await loadCatalog(vin));
+      }
+      if (req.method === "GET" && pathname === "/api/epc/group") {
+        const vin = epcVin();
+        const num = String(requestUrl.searchParams.get("num") || "").trim();
+        if (!validEpcVin(vin) || !num) return json(res, 422, { error: "需要 VIN 与主组编号" });
+        return json(res, 200, { subgroups: await loadSubgroups(vin, num) });
+      }
+      if (req.method === "GET" && pathname === "/api/epc/counts") {
+        const vin = epcVin();
+        if (!validEpcVin(vin)) return json(res, 422, { error: "VIN 应为 17 位字母数字，且不含 I、O、Q" });
+        return json(res, 200, { counts: await loadGroupCounts(vin) });
+      }
+      if (req.method === "GET" && pathname === "/api/epc/parts") {
+        const vin = epcVin();
+        const num = String(requestUrl.searchParams.get("num") || "").trim();
+        const mid = String(requestUrl.searchParams.get("mid") || "").trim();
+        if (!validEpcVin(vin) || !num || !mid) return json(res, 422, { error: "需要 VIN、主组编号与图号" });
+        const applicableOnly = requestUrl.searchParams.get("filter") === "1";
+        return json(res, 200, await loadParts(vin, num, mid, { applicableOnly }));
+      }
+      if (req.method === "GET" && pathname === "/api/generations") {
+        return json(res, 200, { items: listVehicleGenerations(db) });
+      }
+      if (req.method === "POST" && pathname === "/api/generations") {
+        return json(res, 201, createVehicleGeneration(db, await readJson(req)));
+      }
+      const generationMatch = pathname.match(/^\/api\/generations\/([^/]+)$/);
+      if (req.method === "PUT" && generationMatch) {
+        return json(res, 200, updateVehicleGeneration(db, decodeURIComponent(generationMatch[1]), await readJson(req)));
+      }
+      if (req.method === "DELETE" && generationMatch) {
+        deleteVehicleGeneration(db, decodeURIComponent(generationMatch[1]));
         return noContent(res);
       }
       if (req.method === "GET" && pathname === "/api/vehicles") {
@@ -254,7 +308,10 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
         return json(res, 200, updateStatus(db, decodeURIComponent(statusMatch[1]), body.status, body.reason));
       }
       if (req.method === "DELETE" && skuMatch) {
-        deleteDraft(db, decodeURIComponent(skuMatch[1]));
+        const deleted = deleteSku(db, decodeURIComponent(skuMatch[1]));
+        if (deleted?.image) {
+          try { unlinkSync(join(uploadDir, deleted.image)); } catch { /* 图片文件可能已不存在 */ }
+        }
         return noContent(res);
       }
       return json(res, 404, { error: "接口不存在" });

@@ -15,5 +15,6 @@ public/assets/reference-default.png
 # 本地账号与临时文件
 zpy_user.txt
 oe-preview.jpg
+data/epc-token.json
 
 data/uploads/

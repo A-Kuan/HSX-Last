@@ -12,6 +12,7 @@ const TABS = [
   { key: "units", label: "单位", path: "units", noun: "单位" },
   { key: "origins", label: "产地", path: "origins", noun: "产地" },
   { key: "channels", label: "渠道", path: "channels", noun: "渠道" },
+  { key: "generations", label: "代系", path: "generations", noun: "代系" },
 ];
 
 const emptyEditor = () => ({
@@ -22,12 +23,17 @@ const emptyEditor = () => ({
   system: "",
   note: "",
   alias: "",
+  series: "",
+  chassisCode: "",
+  generation: "",
+  platform: "",
   enabled: true,
   partTypeIds: [],
 });
 
 export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
   const [data, setData] = useState(null);
+  const [generations, setGenerations] = useState([]);
   const [tab, setTab] = useState(initialTab);
   const [editor, setEditor] = useState(null);
   const [confirming, setConfirming] = useState("");
@@ -37,7 +43,9 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
 
   const load = async () => {
     try {
-      setData(await api("/dictionaries"));
+      const [dictionaryData, generationData] = await Promise.all([api("/dictionaries"), api("/generations")]);
+      setData(dictionaryData);
+      setGenerations(generationData.items);
       setError("");
     } catch (loadError) {
       setError(loadError.message);
@@ -49,7 +57,7 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
   useEffect(() => { load(); }, []);
 
   const active = TABS.find((item) => item.key === tab) || TABS[0];
-  const items = data?.[tab] || [];
+  const items = tab === "generations" ? generations : data?.[tab] || [];
   const partTypeNames = useMemo(() => new Map((data?.partTypes || []).map((item) => [item.id, item.name])), [data]);
 
   const switchTab = (key) => {
@@ -71,6 +79,9 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
   };
 
   const metaOf = (item) => {
+    if (tab === "generations") {
+      return [`底盘 ${item.chassisCode}`, item.generation, item.platform ? `平台 ${item.platform}` : ""].filter(Boolean).join(" · ");
+    }
     if (tab === "categories") {
       return [item.prefix ? `前缀 ${item.prefix}` : "", item.usageCount ? `${item.usageCount} 条资料` : ""].filter(Boolean).join(" · ");
     }
@@ -92,6 +103,18 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
   const startEdit = (item) => {
     setError("");
     setConfirming("");
+    if (tab === "generations") {
+      setEditor({
+        ...emptyEditor(),
+        mode: "edit",
+        id: item.id,
+        series: item.series,
+        chassisCode: item.chassisCode,
+        generation: item.generation || "",
+        platform: item.platform || "",
+      });
+      return;
+    }
     setEditor({
       mode: "edit",
       id: item.id || item.name,
@@ -119,7 +142,11 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
             ? { name: editor.name, alias: editor.alias, note: editor.note, enabled: editor.enabled }
             : { name: editor.name };
     try {
-      if (editor.mode === "create") {
+      if (tab === "generations") {
+        const payload = { series: editor.series, chassisCode: editor.chassisCode, generation: editor.generation, platform: editor.platform };
+        if (editor.mode === "create") await api("/generations", { method: "POST", body: JSON.stringify(payload) });
+        else await api(`/generations/${editor.id}`, { method: "PUT", body: JSON.stringify(payload) });
+      } else if (editor.mode === "create") {
         await api(`/dictionaries/${active.path}`, { method: "POST", body: JSON.stringify(body) });
       } else {
         await api(`/dictionaries/${active.path}/${encodeURIComponent(editor.id)}`, { method: "PUT", body: JSON.stringify(body) });
@@ -137,7 +164,11 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
   const remove = async (item) => {
     setError("");
     try {
-      await api(`/dictionaries/${active.path}/${encodeURIComponent(item.id || item.name)}`, { method: "DELETE" });
+      if (tab === "generations") {
+        await api(`/generations/${item.id}`, { method: "DELETE" });
+      } else {
+        await api(`/dictionaries/${active.path}/${encodeURIComponent(item.id || item.name)}`, { method: "DELETE" });
+      }
       setConfirming("");
       await load();
       onToast?.(`${active.noun}已删除`);
@@ -172,12 +203,12 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
     <div className="content-area">
       {error && !editor ? <p className="dict-error">{error}</p> : null}
       <div className="dict-panel">
-        <div className="dict-head"><span>名称</span><span>操作</span></div>
+        <div className="dict-head"><span>{tab === "generations" ? "车系" : "名称"}</span><span>操作</span></div>
         {loading ? null : items.map((item) => {
           const key = item.id || item.name;
           return <div className={`dict-row${confirming === key ? " is-confirming" : ""}`} key={key}>
             <div className="dict-main">
-              <strong>{item.name}</strong>
+              <strong>{tab === "generations" ? item.series : item.name}</strong>
               {tab === "brands" && item.enabled === 0 ? <span className="dict-tag">已停用</span> : null}
               {metaOf(item) ? <small>{metaOf(item)}</small> : null}
             </div>
@@ -203,10 +234,23 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
         </header>
         <form onSubmit={(event) => { event.preventDefault(); save(); }}>
           <div className="dict-form">
-            <label className="required">名称
+            {tab === "generations" ? <>
+              <label className="required">车系
+                <input autoFocus value={editor.series} maxLength={40} placeholder="如 凯宴 / 迈凯" onChange={(event) => setEditor({ ...editor, series: event.target.value })} />
+              </label>
+              <label className="required">底盘代号
+                <input value={editor.chassisCode} maxLength={12} placeholder="如 95B / E2" onChange={(event) => setEditor({ ...editor, chassisCode: event.target.value.toUpperCase().replace(/\s+/g, "") })} />
+              </label>
+              <label>代系
+                <input value={editor.generation} maxLength={12} placeholder="如 第一代" onChange={(event) => setEditor({ ...editor, generation: event.target.value })} />
+              </label>
+              <label>平台代号
+                <input value={editor.platform} maxLength={12} placeholder="如 92A / 9YA" onChange={(event) => setEditor({ ...editor, platform: event.target.value.toUpperCase().replace(/\s+/g, "") })} />
+              </label>
+            </> : <label className="required">名称
               <input autoFocus value={editor.name} maxLength={40} placeholder={`${active.noun}名称`} onChange={(event) => setEditor({ ...editor, name: event.target.value })} />
               <span className="char-count">{editor.name.length}/40</span>
-            </label>
+            </label>}
 
             {tab === "categories" ? <label>编码前缀
               <input value={editor.prefix} maxLength={4} placeholder="如 LX" onChange={(event) => setEditor({ ...editor, prefix: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) })} />
@@ -255,7 +299,7 @@ export function DictionaryAdmin({ onToast, initialTab = "categories" }) {
 
           <footer>
             <button className="secondary-button" type="button" onClick={closeEditor}>取消</button>
-            <button className="primary-button" type="submit" disabled={saving || !editor.name.trim()}>{saving ? "保存中..." : "保存"}</button>
+            <button className="primary-button" type="submit" disabled={saving || (tab === "generations" ? !editor.series.trim() || !editor.chassisCode.trim() : !editor.name.trim())}>{saving ? "保存中..." : "保存"}</button>
           </footer>
         </form>
       </aside>

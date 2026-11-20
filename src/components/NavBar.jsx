@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { CaretDown, GearSix, MagnifyingGlass } from "@phosphor-icons/react";
 import "../navbar.css";
 
-/* 配置中心的七个字典页签，顺序与 DictionaryAdmin 的 TABS 一致 */
+/* 配置中心的字典页签，顺序与 DictionaryAdmin 的 TABS 一致 */
 const DICT_TABS = [
   ["categories", "配件品类"],
   ["partTypes", "件类"],
@@ -12,6 +12,7 @@ const DICT_TABS = [
   ["units", "单位"],
   ["origins", "产地"],
   ["channels", "渠道"],
+  ["generations", "代系"],
 ];
 
 export function NavBar({
@@ -63,6 +64,7 @@ export function NavBar({
     },
     { key: "groups", label: "商品组", view: "groups" },
     { key: "vehicle", label: "车型查询", view: "vehicle" },
+    { key: "epc", label: "EPC 查询", view: "epc" },
     { key: "vehicles", label: "车型库", view: "vehicles" },
     {
       key: "config",

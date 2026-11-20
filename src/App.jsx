@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwise, Car, CaretDown, CaretLeft, CaretRight, Check, CheckCircle,
-  DotsThree, DownloadSimple, FileText, ImageSquare, MagnifyingGlass, Minus, PencilSimple,
-  Plus, Prohibit, Trash, UploadSimple, X,
+  DownloadSimple, FileText, ImageSquare, MagnifyingGlass, Minus, PencilSimple,
+  Plus, Power, Prohibit, Trash, UploadSimple, WarningCircle, X,
 } from "@phosphor-icons/react";
 import { api, API_BASE } from "./api.js";
 import { nextGroupReference } from "./groupReference.js";
 import { DictionaryAdmin } from "./components/DictionaryAdmin.jsx";
+import { EpcExplorer } from "./components/EpcExplorer.jsx";
 import { GroupAdmin } from "./components/GroupAdmin.jsx";
+import { RowMenu } from "./components/RowMenu.jsx";
 import { SearchSelect } from "./components/SearchSelect.jsx";
 import { NavBar } from "./components/NavBar.jsx";
 
@@ -165,7 +167,7 @@ function VehicleLookup({ onView }) {
       ? <div className="vehicle-result">
         <div className="vehicle-summary">
           <strong>{result.vehicle.label}</strong>
-          <span>{[result.vehicle.platform, `${result.vehicle.yearFrom}–${result.vehicle.yearTo}`, result.vehicle.engine, result.vehicle.drive].filter(Boolean).join(" · ")}</span>
+          <span>{[result.vehicle.platform, `${result.vehicle.yearFrom}–${result.vehicle.yearTo}`, [result.vehicle.displacement, result.vehicle.engine].filter(Boolean).join(" "), result.vehicle.drive].filter(Boolean).join(" · ")}</span>
           <span className="vehicle-set">{result.set?.name || (result.partTypes.length > 3 ? "全部件类" : result.partTypes.map((partType) => partType.name).join(" / "))}</span>
         </div>
         <div className="part-grid">{result.categories.map((category) => <section className="part-card" key={category.partType.id}>
@@ -187,12 +189,12 @@ function VehicleLookup({ onView }) {
   </main>;
 }
 
-const emptyVehicleForm = { vin: "", brand: "", series: "", generation: "", platform: "", yearFrom: "", yearTo: "", engine: "", body: "", drive: "", note: "", aliases: [], products: [] };
+const emptyVehicleForm = { vin: "", brand: "", series: "", generation: "", platform: "", yearFrom: "", yearTo: "", engine: "", displacement: "", body: "", drive: "", note: "", aliases: [], products: [] };
 
 const vehicleToForm = (vehicle) => ({
   vin: vehicle.vin || "",
   brand: vehicle.brand, series: vehicle.series, generation: vehicle.generation, platform: vehicle.platform,
-  yearFrom: vehicle.yearFrom ?? "", yearTo: vehicle.yearTo ?? "", engine: vehicle.engine, body: vehicle.body,
+  yearFrom: vehicle.yearFrom ?? "", yearTo: vehicle.yearTo ?? "", engine: vehicle.engine, displacement: vehicle.displacement || "", body: vehicle.body,
   drive: vehicle.drive, note: vehicle.note || "",
   aliases: [...(vehicle.aliases || [])],
   products: (vehicle.products || []).map((item) => ({
@@ -200,16 +202,13 @@ const vehicleToForm = (vehicle) => ({
   })),
 });
 
-function VehicleAdmin({ onToast }) {
+function VehicleAdmin({ onToast, onOpenEpc }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [term, setTerm] = useState("");
   const [drawer, setDrawer] = useState(null);
   const [vinOpen, setVinOpen] = useState(false);
-  const [rulesOpen, setRulesOpen] = useState(false);
-  const [rules, setRules] = useState([]);
-  const [ruleError, setRuleError] = useState("");
   const [removing, setRemoving] = useState(null);
   const [opening, setOpening] = useState("");
 
@@ -229,7 +228,11 @@ function VehicleAdmin({ onToast }) {
       brand: prefill.brand || "",
       series: prefill.series || "",
       generation: prefill.generation || "",
+      platform: prefill.platform || "",
       engine: prefill.engine || "",
+      displacement: prefill.displacement || "",
+      body: prefill.body || "",
+      drive: prefill.drive || "",
       yearFrom: prefill.yearFrom ?? "",
       yearTo: prefill.yearTo ?? "",
     },
@@ -247,22 +250,9 @@ function VehicleAdmin({ onToast }) {
     catch (removeError) { setError(removeError.message); setRemoving(null); }
   };
 
-  const openRules = async () => {
-    setRulesOpen(true);
-    setRuleError("");
-    try { setRules((await api("/vin/rules")).items); }
-    catch (error) { setRuleError(error.message); }
-  };
-  const removeRule = async (prefix) => {
-    try {
-      await api(`/vin/rules/${encodeURIComponent(prefix)}`, { method: "DELETE" });
-      setRules((current) => current.filter((rule) => rule.prefix !== prefix));
-    } catch (error) { setRuleError(error.message); }
-  };
-
   const needle = term.trim().toLowerCase();
   const filtered = needle
-    ? items.filter((vehicle) => [vehicle.label, vehicle.platform, vehicle.engine, ...(vehicle.aliases || [])].join(" ").toLowerCase().includes(needle))
+    ? items.filter((vehicle) => [vehicle.label, vehicle.platform, vehicle.displacement, vehicle.engine, ...(vehicle.aliases || [])].join(" ").toLowerCase().includes(needle))
     : items;
 
   return <main className="workspace vehicle-workspace">
@@ -270,7 +260,6 @@ function VehicleAdmin({ onToast }) {
       <div><h1>车型库</h1></div>
       <div className="page-actions">
         <button className="secondary-button" type="button" onClick={() => setVinOpen(true)}><Car /> VIN 识别录入</button>
-        <button className="secondary-button" type="button" onClick={openRules}>VIN 规则</button>
         <button className="primary-button" type="button" onClick={() => openCreate()}><Plus /> 新增车型</button>
       </div>
     </div>
@@ -280,14 +269,15 @@ function VehicleAdmin({ onToast }) {
     {error && <div className="form-error"><Prohibit weight="fill" />{error}</div>}
     {loading ? <div className="loading-note"><span />正在加载车型</div>
       : filtered.length ? <div className="vehicle-list">
-        <div className="vehicle-list-head"><span>车型</span><span>平台</span><span>年款</span><span>发动机</span><span>适配件</span><span /></div>
+        <div className="vehicle-list-head"><span>车型</span><span>平台</span><span>年款</span><span>排量 / 发动机</span><span>适配件</span><span /></div>
         {filtered.map((vehicle) => <div className="vehicle-list-row" key={vehicle.id}>
           <div className="vehicle-identity"><strong>{vehicle.label}</strong><small>{[vehicle.vin ? `VIN ${vehicle.vin}` : "", (vehicle.aliases || []).slice(0, 4).join(" / ") || "无别名"].filter(Boolean).join(" · ")}</small></div>
           <span>{vehicle.platform || "—"}</span>
           <span>{vehicle.yearFrom || "?"}–{vehicle.yearTo || "?"}</span>
-          <span>{vehicle.engine || "—"}</span>
+          <span>{[vehicle.displacement, vehicle.engine].filter(Boolean).join(" · ") || "—"}</span>
           <span>{vehicle.productCount} 个</span>
           <div className="row-actions">
+            <button className="text-button" type="button" disabled={!vehicle.vin} onClick={() => onOpenEpc?.(vehicle.vin)}>EPC</button>
             <button className="secondary-button" type="button" disabled={opening === vehicle.id} onClick={() => openEdit(vehicle)}>{opening === vehicle.id ? "打开中" : "编辑"}</button>
             <IconButton label={`删除车型 ${vehicle.label}`} onClick={() => setRemoving(vehicle)}><Trash /></IconButton>
           </div>
@@ -296,17 +286,6 @@ function VehicleAdmin({ onToast }) {
         : <div className="table-shell empty-shell"><div className="empty-state"><Car /><h3>{needle ? "没有匹配的车型" : "还没有维护车型"}</h3><p>{needle ? "换个关键词试试" : "手动新增车型，或粘贴 VIN 识别"}</p>{!needle && <button className="primary-button" type="button" onClick={() => openCreate()}><Plus /> 新增车型</button>}</div></div>}
     {drawer && <VehicleDrawer vehicleId={drawer.vehicleId} draft={drawer.draft} onClose={() => setDrawer(null)} onSaved={(saved) => { setDrawer(null); onToast?.(`车型 ${saved.label} 已保存`); load(); }} />}
     {vinOpen && <VinDialog onClose={() => setVinOpen(false)} onManual={(prefill) => { setVinOpen(false); openCreate(prefill); }} />}
-    {rulesOpen && <div className="overlay modal-overlay"><div className="batch-modal vin-rules-modal" role="dialog" aria-modal="true" aria-label="VIN 规则">
-      <header><div><h2>VIN 规则</h2></div><IconButton label="关闭" onClick={() => setRulesOpen(false)}><X /></IconButton></header>
-      {ruleError ? <div className="form-error"><Prohibit weight="fill" />{ruleError}</div> : null}
-      <ul className="vin-rule-list">
-        {rules.map((rule) => <li key={rule.prefix}>
-          <span className="vin-rule-prefix">{rule.prefix}</span>
-          <span className="vin-rule-name">{[rule.brand, rule.series, rule.generation, rule.engine].filter(Boolean).join(" · ")}</span>
-          <button className="text-button is-danger" type="button" onClick={() => removeRule(rule.prefix)}>删除</button>
-        </li>)}
-      </ul>
-    </div></div>}
     {removing && <div className="overlay modal-overlay"><div className="batch-modal" role="dialog" aria-modal="true" aria-label="删除车型">
       <header><div><h2>删除车型</h2><p>{removing.label}</p></div><IconButton label="关闭" onClick={() => setRemoving(null)}><X /></IconButton></header>
       <p className="modal-note">删除后该车型的别名与适配件映射一并移除，商品组和 SKU 不受影响。</p>
@@ -370,6 +349,7 @@ function VehicleDrawer({ vehicleId, draft, onClose, onSaved }) {
           <Field label="起始年款" type="number" value={form.yearFrom} onChange={(value) => set("yearFrom", value)} error={errors.yearFrom} />
           <Field label="结束年款" type="number" value={form.yearTo} onChange={(value) => set("yearTo", value)} error={errors.yearTo} />
           <Field label="发动机" value={form.engine} onChange={(value) => set("engine", value)} />
+          <Field label="排量" value={form.displacement} onChange={(value) => set("displacement", value)} />
           <Field label="车身形式" value={form.body} onChange={(value) => set("body", value)} />
           <Field label="驱动形式" value={form.drive} onChange={(value) => set("drive", value)} />
         </div>
@@ -403,23 +383,31 @@ function VehicleDrawer({ vehicleId, draft, onClose, onSaved }) {
 
 function VinDialog({ onClose, onManual }) {
   const [vin, setVin] = useState("");
-  const [result, setResult] = useState(null);
+  const [epc, setEpc] = useState(null);
+  const [status, setStatus] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api("/vin/epc/status").then(setStatus).catch(() => setStatus({ configured: false, quota: null }));
+  }, []);
 
   const decode = async (event) => {
     event.preventDefault();
     const value = vin.trim().toUpperCase().replace(/\s+/g, "");
+    if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(value)) {
+      setEpc(null);
+      setError("VIN 应为 17 位字母数字，且不含 I、O、Q");
+      return;
+    }
     setLoading(true);
     setError("");
+    setEpc(null);
     try {
-      const data = await api(`/vin/decode?vin=${encodeURIComponent(value)}`);
-      if (!data.valid) {
-        setResult(null);
-        setError("VIN 应为 17 位字母数字，且不含 I、O、Q");
-      } else {
-        setResult(data);
-      }
+      const data = await api(`/vin/epc?vin=${encodeURIComponent(value)}`);
+      setEpc(data);
+      if (data.quota) setStatus((current) => ({ configured: true, ...(current || {}), quota: data.quota }));
+      if (!data.matched) setError("没有查到这台车的车型");
     } catch (decodeError) {
       setError(decodeError.message);
     } finally {
@@ -427,29 +415,39 @@ function VinDialog({ onClose, onManual }) {
     }
   };
 
-  const rule = result?.rule;
+  const quota = status?.quota;
   const handoff = () => onManual({
-    vin: result.vin,
-    brand: result.brand || rule?.brand || "",
-    series: rule?.series || "",
-    generation: rule?.generation || "",
-    engine: rule?.engine || "",
-    yearFrom: rule?.yearFrom ?? (result.year || ""),
-    yearTo: rule?.yearTo ?? "",
+    vin: epc.vin,
+    brand: epc.brand,
+    series: epc.series,
+    generation: epc.generation,
+    platform: epc.platform,
+    engine: epc.engine,
+    displacement: epc.displacement,
+    yearFrom: epc.yearFrom || epc.year || "",
+    yearTo: epc.yearTo || "",
+    body: epc.body,
+    drive: epc.drive,
   });
 
   return <div className="overlay modal-overlay"><div className="batch-modal vin-modal" role="dialog" aria-modal="true" aria-label="VIN 识别车型">
     <header><div><h2>VIN 识别车型</h2></div><IconButton label="关闭" onClick={onClose}><X /></IconButton></header>
     <form onSubmit={decode}>
-      <label>车架号（VIN）<input value={vin} maxLength={17} className={error ? "is-invalid" : ""} placeholder="17 位车架号" onChange={(event) => { setVin(event.target.value.toUpperCase()); setResult(null); setError(""); }} />{error && <small className="field-error">{error}</small>}</label>
-      {result
+      <label>车架号（VIN）<input value={vin} maxLength={17} className={error ? "is-invalid" : ""} placeholder="17 位车架号" onChange={(event) => { setVin(event.target.value.toUpperCase()); setEpc(null); setError(""); }} />{error && <small className="field-error">{error}</small>}</label>
+      {epc?.matched
         ? <>
           <dl className="vin-decoded">
-            <dt>整车品牌</dt><dd>{result.brand || "—"}</dd>
-            <dt>年款</dt><dd>{result.year || "—"}</dd>
-            <dt>总装厂</dt><dd>{result.plant || "—"}</dd>
-            <dt>VDS 前缀</dt><dd>{result.vin.slice(0, 8)}</dd>
-            <dt>匹配车型</dt><dd>{rule ? [rule.series, rule.generation, rule.engine].filter(Boolean).join(" · ") : "未匹配"}</dd>
+            <dt>车型</dt><dd>{epc.modelDetail || epc.model}</dd>
+            <dt>品牌 / 车系</dt><dd>{[epc.brand, epc.series].filter(Boolean).join(" / ") || "—"}</dd>
+            <dt>代系</dt><dd>{epc.generation || "—"}</dd>
+            <dt>平台代号</dt><dd>{epc.platform || "—"}</dd>
+            <dt>年款</dt><dd>{epc.yearFrom === epc.yearTo ? epc.yearFrom : [epc.yearFrom, epc.yearTo].filter(Boolean).join(" - ") || "—"}</dd>
+            <dt>排量 / 发动机</dt><dd>{[epc.displacement, epc.engine].filter(Boolean).join(" · ") || "—"}</dd>
+            <dt>变速箱 / 驱动</dt><dd>{[epc.transmission, epc.drive].filter(Boolean).join(" · ") || "—"}</dd>
+            <dt>车身 / 产地</dt><dd>{[epc.body, epc.madeIn].filter(Boolean).join(" · ") || "—"}</dd>
+            <dt>VIN 前缀</dt><dd>{epc.vin.slice(0, 8)}</dd>
+            <dt>候选车型</dt><dd>{epc.candidates.length} 款</dd>
+            <dt>数据来源</dt><dd>{epc.cached ? "极联缓存" : "极联"}{quota ? ` · 余 ${quota.remaining} 次` : ""}</dd>
           </dl>
           <div className="vin-actions">
             <button className="secondary-button" type="button" onClick={onClose}>取消</button>
@@ -457,6 +455,7 @@ function VinDialog({ onClose, onManual }) {
           </div>
         </>
         : <footer>
+          <span className="vin-quota">{status === null ? "" : status.configured ? (quota ? `余 ${quota.remaining} 次` : "") : "未配置 token"}</span>
           <button className="secondary-button" type="button" onClick={onClose}>取消</button>
           <button className="primary-button" type="submit" disabled={!vin.trim() || loading}>{loading ? "识别中..." : "识别车型"}</button>
         </footer>}
@@ -687,7 +686,7 @@ function GroupOeStrip({ group, onChanged }) {
   </div>;
 }
 
-function ProductTable({ groups, expanded, setExpanded, selected, setSelected, onDetail, onEdit, onViewImage, onUploadImage, onGroupChanged }) {
+function ProductTable({ groups, expanded, setExpanded, selected, setSelected, onDetail, onEdit, onStatus, onDelete, onViewImage, onUploadImage, onGroupChanged }) {
   const visibleIds = groups.flatMap((group) => group.skus.map((sku) => sku.id));
   const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const toggleMany = (ids, value) => setSelected((current) => { const next = new Set(current); ids.forEach((id) => value ? next.add(id) : next.delete(id)); return next; });
@@ -700,7 +699,7 @@ function ProductTable({ groups, expanded, setExpanded, selected, setSelected, on
       return <section className={`product-group ${open ? "is-expanded" : ""}`} key={group.id}>
         <div className="group-row"><IconButton label={open ? "收起商品组" : "展开商品组"} onClick={toggleGroup}>{open ? <CaretDown /> : <CaretRight />}</IconButton><Checkbox checked={selectedCount === ids.length} indeterminate={selectedCount > 0 && selectedCount < ids.length} onChange={() => toggleMany(ids, selectedCount !== ids.length)} label={`选择${group.name}`} /><button className="group-main" type="button" aria-expanded={open} onClick={toggleGroup}><span className="group-copy"><strong>{group.name}</strong><span>参考编码　{group.reference}　|　{group.category}　|　共 {group.totalSkuCount} 个 SKU{group.oeNumbers?.length ? `　|　组级 OE ${group.oeNumbers.length} 个${group.primaryOe ? `（主 ${group.primaryOe}）` : ""}` : ""}</span></span></button><div className="group-summary">{group.enabledSkuCount} 个已启用</div><span /></div>
         {open && <div className="sku-table"><GroupOeStrip group={group} onChanged={onGroupChanged} /><div className="sku-header"><span /><span /><span /><span>SKU / 配件名称</span><span>品牌 / 品牌件号</span><span>OE 号</span><span>适配车型</span><span>售价</span><span>资料状态</span><span /></div>
-          {group.skus.map((sku) => <div className="sku-row" key={sku.id}><span /><Checkbox checked={selected.has(sku.id)} onChange={() => setSelected((current) => { const next = new Set(current); next.has(sku.id) ? next.delete(sku.id) : next.add(sku.id); return next; })} label={`选择${sku.id}`} /><button className={`sku-thumb${sku.image ? " has-image" : ""}`} type="button" onClick={() => (sku.image ? onViewImage(sku) : onUploadImage(sku))} aria-label={sku.image ? `查看 ${sku.id} 商品图` : `上传 ${sku.id} 商品图`}>{sku.image ? <img src={skuImageUrl(sku)} alt="" /> : <ImageSquare />}</button><button className="sku-identity" type="button" onClick={() => onDetail(sku, group)}><span><strong>{sku.id}</strong><small>{group.name} · {sku.packQuantity}{sku.unit}/包装</small></span></button><span><b>{skuBrandLabel(sku)}</b><small>{[sku.partNo, sku.origin, sku.channel].filter(Boolean).join(" · ")}</small></span><span>{sku.oeNumbers?.join(" / ") || "未维护"}</span><span>{fitmentText(sku)}</span><span>{sku.price > 0 ? `¥${Number(sku.price).toFixed(2)}` : "面议"}</span><span className={`status sku-status status-${sku.status}`}><i />{STATUS_LABELS[sku.status]}</span><IconButton label="编辑SKU" onClick={() => onEdit(sku, group)}><DotsThree /></IconButton></div>)}
+          {group.skus.map((sku) => <div className="sku-row" key={sku.id}><span /><Checkbox checked={selected.has(sku.id)} onChange={() => setSelected((current) => { const next = new Set(current); next.has(sku.id) ? next.delete(sku.id) : next.add(sku.id); return next; })} label={`选择${sku.id}`} /><button className={`sku-thumb${sku.image ? " has-image" : ""}`} type="button" onClick={() => (sku.image ? onViewImage(sku) : onUploadImage(sku))} aria-label={sku.image ? `查看 ${sku.id} 商品图` : `上传 ${sku.id} 商品图`}>{sku.image ? <img src={skuImageUrl(sku)} alt="" /> : <ImageSquare />}</button><button className="sku-identity" type="button" onClick={() => onDetail(sku, group)}><span><strong>{sku.id}</strong><small>{group.name} · {sku.packQuantity}{sku.unit}/包装</small></span></button><span><b>{skuBrandLabel(sku)}</b><small>{[sku.partNo, sku.origin, sku.channel].filter(Boolean).join(" · ")}</small></span><span>{sku.oeNumbers?.join(" / ") || "未维护"}</span><span>{fitmentText(sku)}</span><span>{sku.price > 0 ? `¥${Number(sku.price).toFixed(2)}` : "面议"}</span><span className={`status sku-status status-${sku.status}`}><i />{STATUS_LABELS[sku.status]}</span><RowMenu label={`${sku.id} 更多操作`} items={[{ key: "edit", label: "编辑资料", icon: <PencilSimple />, onSelect: () => onEdit(sku, group) }, { key: "status", label: sku.status === "enabled" ? "停用" : "启用", icon: <Power />, onSelect: () => onStatus(sku, sku.status === "enabled" ? "disabled" : "enabled") }, { key: "delete", label: "删除", icon: <Trash />, danger: true, onSelect: () => onDelete(sku, group) }]} /></div>)}
         </div>}
       </section>;
     })}
@@ -722,7 +721,7 @@ function DetailDrawer({ selected, onClose, onEdit, onViewImage, onUploadImage })
 
 const emptyFitment = () => ({ make: "", series: "", yearFrom: "", yearTo: "", variant: "", engine: "", position: "", source: "", verificationStatus: "pending", note: "" });
 
-function EditDrawer({ selected, groups, onClose, onSaved, onDeleted }) {
+function EditDrawer({ selected, groups, onClose, onSaved, onRequestDelete }) {
   const editing = Boolean(selected?.sku);
   const initialSku = selected?.sku;
   const initialGroup = selected?.group || groups[0] || null;
@@ -769,7 +768,6 @@ function EditDrawer({ selected, groups, onClose, onSaved, onDeleted }) {
   const saveVehicle = continuous => { if (!vehicle.make.trim() || !vehicle.series.trim()) {setNotice("请填写车型品牌和车系"); return;} if (vehicle.yearFrom && vehicle.yearTo && Number(vehicle.yearFrom)>Number(vehicle.yearTo)) {setNotice("结束年款不能早于起始年款"); return;} setFitments(current => vehicleIndex < 0 ? [...current, vehicle] : current.map((x,i)=>i===vehicleIndex?vehicle:x)); setDirty(true); setVehicle(continuous ? {...emptyFitment(), make:vehicle.make, series:vehicle.series} : null); setVehicleIndex(-1); setNotice(continuous ? "车型已保存，可继续添加下一款" : "车型适配已保存"); };
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const set = (key, value) => { setDirty(true); setErrors(current => ({...current, [key]: undefined})); setForm((current) => ({ ...current, [key]: value })); };
   const createBrand = async () => {
     if (!brandDraft) return;
@@ -934,7 +932,7 @@ function EditDrawer({ selected, groups, onClose, onSaved, onDeleted }) {
     {fitments.map((item,index)=><article className="wb-fitment" key={index}><div className="section-title"><strong>{item.make} {item.series}</strong><div><button className="text-button" type="button" disabled={!!vehicle} onClick={()=>{setVehicle({...item});setVehicleIndex(index);}}><PencilSimple/> 编辑</button><button className="text-button" type="button" onClick={()=>setRemoveIndex(index)}><Trash/> 删除</button></div></div><p>{item.yearFrom || "不限"} — {item.yearTo || "不限"} · {item.variant || "全部版本"}</p><p>{item.engine || "全部配置"} · {item.position || "位置未填写"}</p><div className="section-title"><span>{item.source || "来源未填写"}</span><span>{VERIFY_LABELS[item.verificationStatus]}</span></div></article>)}
     {vehicle && <div className="wb-vehicle-editor"><h3>{vehicleIndex<0 ? "新增适配车型" : "编辑适配车型"}</h3><div className="form-grid">{[["make","品牌"],["series","车系"],["yearFrom","起始年款"],["yearTo","结束年款"],["variant","车型版本"],["engine","发动机/配置"],["position","安装位置"],["source","资料来源"]].map(([key,label])=><Field key={key} label={label} required={key==="make"||key==="series"} type={key.startsWith("year")?"number":"text"} value={vehicle[key] || ""} onChange={value=>setVehicle(x=>({...x,[key]:value}))}/>)}<label>核实状态<SearchSelect ariaLabel="核实状态" value={vehicle.verificationStatus} onChange={value=>setVehicle(x=>({...x,verificationStatus:value}))} options={Object.entries(VERIFY_LABELS).map(([value,label])=>({ value, label }))} /></label></div><div className="wb-actions"><button type="button" className="text-button" onClick={()=>setVehicle(null)}>取消编辑</button><button type="button" className="secondary-button" onClick={()=>saveVehicle(true)}>保存并继续添加</button><button type="button" className="primary-button" onClick={()=>saveVehicle(false)}>保存车型</button></div></div>}
     </section></div>
-    {editing && initialSku.status === "draft" && <div className="draft-delete-row">{confirmingDelete ? <><span>草稿删除后不能恢复。</span><button className="danger-button" type="button" onClick={async () => { setSaving(true); try { await api(`/skus/${encodeURIComponent(initialSku.id)}`, { method: "DELETE" }); onDeleted(); } catch (error) { setErrors({ form: error.message }); setSaving(false); } }}>确认删除草稿</button><button className="secondary-button" type="button" onClick={() => setConfirmingDelete(false)}>取消</button></> : <button className="danger-text-button" type="button" onClick={() => setConfirmingDelete(true)}><Trash /> 删除草稿</button>}</div>}
+    {editing && <div className="sku-delete-row"><button className="danger-text-button" type="button" onClick={() => onRequestDelete?.()}><Trash /> 删除 SKU</button></div>}
     <footer><label className="wb-next"><input type="checkbox" checked={next} onChange={e=>setNext(e.target.checked)}/>创建后继续新增</label><button className="secondary-button" type="button" onClick={close}>取消</button><button className="secondary-button" type="button" onClick={draft}>暂存草稿</button><button className="primary-button" type="submit" disabled={saving}>{saving ? "保存中…" : editing ? "保存更改" : "创建 SKU"}</button></footer>
   </form></aside>
   {batch !== null && <div className="wb-modal-shade"><div className="wb-modal" role="dialog" aria-label="批量录入 OE 号"><div className="section-title"><h2>批量录入 OE 号</h2><IconButton label="关闭批量录入" onClick={()=>setBatch(null)}><X/></IconButton></div><p>每行一个，或用逗号、分号、Tab 分隔。空格不会拆分编号。</p><textarea aria-label="批量 OE 内容" placeholder={"34 11 6 874 930\n34 11 6 888 895"} value={batch} onChange={e=>setBatch(e.target.value)}/><div className="wb-preview"><strong>解析预览 · 新增 {parseOE(batch).values.length} 个 · 重复 {parseOE(batch).duplicate} 个</strong><div className="wb-chips">{parseOE(batch).values.map(x=><span key={x}>{x}</span>)}</div></div><div className="wb-actions"><button className="secondary-button" type="button" onClick={()=>setBatch(null)}>取消</button><button className="primary-button" type="button" disabled={!parseOE(batch).values.length} onClick={()=>{appendOE(batch);setBatch(null);}}>确认添加 {parseOE(batch).values.length} 个</button></div></div></div>}
@@ -968,6 +966,33 @@ function BatchModal({ items, onClose, onConfirm }) {
   const [saving, setSaving] = useState(false);
   const groupCount = new Set(items.map((item) => item.group.id)).size;
   return <div className="overlay modal-overlay"><div className="batch-modal" role="dialog" aria-modal="true"><header><div><h2>批量设置资料状态</h2><p>{items.length} 个 SKU，来自 {groupCount} 个商品组</p></div><IconButton label="关闭" onClick={onClose}><X /></IconButton></header><label>目标状态<SearchSelect ariaLabel="目标状态" value={status} onChange={setStatus} options={[{ value: "enabled", label: "启用" }, { value: "disabled", label: "停用" }, { value: "draft", label: "转为草稿" }]} /></label><label>变更原因<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={200} /><span className="char-count">{reason.length}/200</span></label><div className="batch-list">{items.map(({ sku, group }) => <div key={sku.id}><span><strong>{sku.id}</strong><small>{group.name} · 当前{STATUS_LABELS[sku.status]}</small></span></div>)}</div><footer><button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" type="button" disabled={!reason.trim() || saving} onClick={async () => { setSaving(true); await onConfirm(status, reason); setSaving(false); }}>{saving ? "处理中..." : "确认修改"}</button></footer></div></div>;
+}
+
+function DeleteSkuModal({ target, onClose, onConfirm }) {
+  const { sku, group } = target;
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const confirm = async () => {
+    setSaving(true);
+    setError("");
+    try { await onConfirm(target); }
+    catch (removeError) { setError(removeError.message); setSaving(false); }
+  };
+  return <div className="overlay modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="batch-modal sku-delete-modal" role="dialog" aria-modal="true" aria-label="删除 SKU">
+      <header><div><h2>删除 SKU</h2><p>{sku.id} · {group?.name}</p></div><IconButton label="关闭" onClick={onClose}><X /></IconButton></header>
+      <ul className="group-delete-impact">
+        <li>该 SKU 的 OE 号、车型适配与替代关系将一并删除</li>
+        {sku.image ? <li>商品图文件一并移除</li> : null}
+        <li>操作不可撤销</li>
+      </ul>
+      {error ? <p className="field-error">{error}</p> : null}
+      <footer>
+        <button className="secondary-button" type="button" onClick={onClose}>取消</button>
+        <button className="danger-button" type="button" disabled={saving} onClick={confirm}>{saving ? "删除中..." : "确认删除"}</button>
+      </footer>
+    </div>
+  </div>;
 }
 
 function ImportModal({ groups, onClose, onImported }) {
@@ -1031,6 +1056,7 @@ function BottomBar({ selectedItems, page, totalPages, pageSize, onPage, onBatch,
 export function App() {
   const [view, setView] = useState("sku");
   const [configTab, setConfigTab] = useState("categories");
+  const [epcVin, setEpcVin] = useState("");
   const [catalog, setCatalog] = useState({ groups: [], counts: { all: 0, draft: 0, incomplete: 0, disabled: 0 }, categories: [], pagination: { page: 1, pageSize: 20, totalPages: 1 } });
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1045,13 +1071,16 @@ export function App() {
   const [edit, setEdit] = useState(null);
   const [batchOpen, setBatchOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [toast, setToast] = useState("");
+  const [removing, setRemoving] = useState(null);
+  const [toast, setToast] = useState(null);
   const [imageViewer, setImageViewer] = useState(null);
   const [imageTarget, setImageTarget] = useState(null);
   const [imageBusy, setImageBusy] = useState(false);
   const imageInputRef = useRef(null);
   const requestId = useRef(0);
   const lastFilterKey = useRef(null);
+
+  const notify = (text, tone = "success") => setToast({ text, tone });
 
   const load = async ({ quiet = false } = {}) => {
     const id = ++requestId.current;
@@ -1077,7 +1106,7 @@ export function App() {
 
   useEffect(() => { const timer = window.setTimeout(() => load(), 220); return () => window.clearTimeout(timer); }, [search, category, status, page]);
   useEffect(() => { setPage(1); setSelected(new Set()); }, [search, category, status]);
-  useEffect(() => { if (!toast) return undefined; const timer = window.setTimeout(() => setToast(""), 3000); return () => window.clearTimeout(timer); }, [toast]);
+  useEffect(() => { if (!toast) return undefined; const timer = window.setTimeout(() => setToast(null), 3000); return () => window.clearTimeout(timer); }, [toast]);
 
   const selectedItems = useMemo(() => catalog.groups.flatMap((group) => group.skus.filter((sku) => selected.has(sku.id)).map((sku) => ({ sku, group }))), [catalog.groups, selected]);
   const tabs = [
@@ -1101,14 +1130,39 @@ export function App() {
     try {
       const dataUrl = await fileToDataUrl(file);
       await api(`/skus/${encodeURIComponent(imageTarget.id)}/image`, { method: "POST", body: JSON.stringify({ dataUrl }) });
-      setToast("商品图已更新");
+      notify("商品图已更新");
       await load({ quiet: true });
     } catch (uploadError) {
-      setToast(uploadError.message);
+      notify(uploadError.message, "error");
     } finally {
       setImageBusy(false);
       setImageTarget(null);
     }
+  };
+
+  const changeStatus = async (sku, nextStatus) => {
+    try {
+      await api(`/skus/${encodeURIComponent(sku.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: nextStatus }) });
+      notify(`${sku.id} 已${nextStatus === "disabled" ? "停用" : "启用"}`);
+      await load({ quiet: true });
+    } catch (statusError) {
+      notify(statusError.message, "error");
+    }
+  };
+
+  const removeSku = async ({ sku }) => {
+    await api(`/skus/${encodeURIComponent(sku.id)}`, { method: "DELETE" });
+    setRemoving(null);
+    setEdit((current) => (current?.sku?.id === sku.id ? null : current));
+    setDetail((current) => (current?.sku?.id === sku.id ? null : current));
+    setSelected((current) => {
+      if (!current.has(sku.id)) return current;
+      const next = new Set(current);
+      next.delete(sku.id);
+      return next;
+    });
+    notify(`已删除 SKU ${sku.id}`);
+    await load({ quiet: true });
   };
 
   return <div className={`app-shell ${view === "sku" ? "" : "is-vehicle"}`}><NavBar
@@ -1121,11 +1175,12 @@ export function App() {
       onImport={() => setImportOpen(true)}
       onRefresh={() => load({ quiet: true })}
       onConfigTab={(key) => { setConfigTab(key); setView("config"); }}
-    />{view === "groups" ? <GroupAdmin onToast={setToast} /> : view === "vehicles" ? <VehicleAdmin onToast={setToast} /> : view === "vehicle" ? <VehicleLookup onView={setView} /> : view === "config" ? <DictionaryAdmin key={configTab} initialTab={configTab} onToast={setToast} /> : <main className="workspace"><div className="page-title-row"><div><h1>SKU商品库</h1></div><div className="page-actions"><button className="secondary-button" type="button" onClick={() => setImportOpen(true)}><UploadSimple /> 批量导入</button><button className="primary-button" type="button" onClick={() => setEdit({})}><Plus /> 新增SKU</button><IconButton label="刷新商品" onClick={() => load({ quiet: true })}><ArrowClockwise /></IconButton></div></div><nav className="status-tabs" role="tablist">{tabs.map(([value, label]) => <button role="tab" aria-selected={status === value} className={status === value ? "is-active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}</button>)}</nav><FilterBar search={search} setSearch={setSearch} category={category} setCategory={setCategory} categories={catalog.categories} /><div className="content-area">{loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => load()} /> : catalog.groups.length ? <ProductTable groups={catalog.groups} expanded={expanded} setExpanded={setExpanded} selected={selected} setSelected={setSelected} onDetail={(sku, group) => setDetail({ sku, group })} onEdit={(sku, group) => setEdit({ sku, group })} onViewImage={setImageViewer} onUploadImage={pickImage} onGroupChanged={() => load({ quiet: true })} /> : <EmptyState filtered={Boolean(search || category || status)} onClear={() => { setSearch(""); setCategory(""); setStatus(""); }} onAdd={() => setEdit({})} onImport={() => setImportOpen(true)} />}</div></main>}{view === "sku" && <BottomBar selectedItems={selectedItems} page={catalog.pagination.page} totalPages={catalog.pagination.totalPages} pageSize={catalog.pagination.pageSize} onPage={setPage} onBatch={() => setBatchOpen(true)} onClear={() => setSelected(new Set())} onExport={async () => { try { const data = await api("/export"); const ids = new Set(selectedItems.map(({ sku }) => sku.id)); const items = ids.size ? data.items.filter((item) => ids.has(item.id)) : data.items; downloadCsv(`SKU资料-${new Date().toISOString().slice(0, 10)}.csv`, exportRows(items)); setToast(`已导出 ${items.length} 个 SKU`); } catch (exportError) { setToast(exportError.message); } }} />}
+    />{view === "epc" ? <EpcExplorer initialVin={epcVin} /> : view === "groups" ? <GroupAdmin onToast={(message) => notify(message)} /> : view === "vehicles" ? <VehicleAdmin onToast={(message) => notify(message)} onOpenEpc={(vin) => { setEpcVin(vin); setView("epc"); }} /> : view === "vehicle" ? <VehicleLookup onView={setView} /> : view === "config" ? <DictionaryAdmin key={configTab} initialTab={configTab} onToast={(message) => notify(message)} /> : <main className="workspace"><div className="page-title-row"><div><h1>SKU商品库</h1></div><div className="page-actions"><button className="secondary-button" type="button" onClick={() => setImportOpen(true)}><UploadSimple /> 批量导入</button><button className="primary-button" type="button" onClick={() => setEdit({})}><Plus /> 新增SKU</button><IconButton label="刷新商品" onClick={() => load({ quiet: true })}><ArrowClockwise /></IconButton></div></div><nav className="status-tabs" role="tablist">{tabs.map(([value, label]) => <button role="tab" aria-selected={status === value} className={status === value ? "is-active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}</button>)}</nav><FilterBar search={search} setSearch={setSearch} category={category} setCategory={setCategory} categories={catalog.categories} /><div className="content-area">{loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => load()} /> : catalog.groups.length ? <ProductTable groups={catalog.groups} expanded={expanded} setExpanded={setExpanded} selected={selected} setSelected={setSelected} onDetail={(sku, group) => setDetail({ sku, group })} onEdit={(sku, group) => setEdit({ sku, group })} onStatus={changeStatus} onDelete={(sku, group) => setRemoving({ sku, group })} onViewImage={setImageViewer} onUploadImage={pickImage} onGroupChanged={() => load({ quiet: true })} /> : <EmptyState filtered={Boolean(search || category || status)} onClear={() => { setSearch(""); setCategory(""); setStatus(""); }} onAdd={() => setEdit({})} onImport={() => setImportOpen(true)} />}</div></main>}{view === "sku" && <BottomBar selectedItems={selectedItems} page={catalog.pagination.page} totalPages={catalog.pagination.totalPages} pageSize={catalog.pagination.pageSize} onPage={setPage} onBatch={() => setBatchOpen(true)} onClear={() => setSelected(new Set())} onExport={async () => { try { const data = await api("/export"); const ids = new Set(selectedItems.map(({ sku }) => sku.id)); const items = ids.size ? data.items.filter((item) => ids.has(item.id)) : data.items; downloadCsv(`SKU资料-${new Date().toISOString().slice(0, 10)}.csv`, exportRows(items)); notify(`已导出 ${items.length} 个 SKU`); } catch (exportError) { notify(exportError.message, "error"); } }} />}
     {detail && <DetailDrawer selected={detail} onClose={() => setDetail(null)} onEdit={() => { setEdit(detail); setDetail(null); }} onViewImage={setImageViewer} onUploadImage={pickImage} />}
-    {edit && <EditDrawer selected={edit} groups={groups} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); setToast(edit.sku ? "SKU 资料已更新" : "SKU 已创建"); load({ quiet: true }); }} onDeleted={() => { setEdit(null); setToast("草稿 SKU 已删除"); load({ quiet: true }); }} />}
-    {batchOpen && <BatchModal items={selectedItems} onClose={() => setBatchOpen(false)} onConfirm={async (nextStatus, reason) => { await Promise.all(selectedItems.map(({ sku }) => api(`/skus/${encodeURIComponent(sku.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: nextStatus, reason }) }))); setBatchOpen(false); setSelected(new Set()); setToast(`已更新 ${selectedItems.length} 个 SKU`); load({ quiet: true }); }} />}
-    {importOpen && <ImportModal groups={groups} onClose={() => setImportOpen(false)} onImported={(result) => { setImportOpen(false); setToast(`已导入 ${result.valid} 个 SKU`); load({ quiet: true }); }} />}
+    {edit && <EditDrawer selected={edit} groups={groups} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); notify(edit.sku ? "SKU 资料已更新" : "SKU 已创建"); load({ quiet: true }); }} onRequestDelete={() => setRemoving(edit)} />}
+    {removing?.sku && <DeleteSkuModal target={removing} onClose={() => setRemoving(null)} onConfirm={removeSku} />}
+    {batchOpen && <BatchModal items={selectedItems} onClose={() => setBatchOpen(false)} onConfirm={async (nextStatus, reason) => { await Promise.all(selectedItems.map(({ sku }) => api(`/skus/${encodeURIComponent(sku.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: nextStatus, reason }) }))); setBatchOpen(false); setSelected(new Set()); notify(`已更新 ${selectedItems.length} 个 SKU`); load({ quiet: true }); }} />}
+    {importOpen && <ImportModal groups={groups} onClose={() => setImportOpen(false)} onImported={(result) => { setImportOpen(false); notify(`已导入 ${result.valid} 个 SKU`); load({ quiet: true }); }} />}
     <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={uploadImage} aria-label="上传商品图" />
     {imageViewer ? <div className="overlay image-viewer" onMouseDown={(event) => { if (event.target === event.currentTarget) setImageViewer(null); }}>
       <div className="image-viewer-box" role="dialog" aria-modal="true" aria-label={`${imageViewer.id} 商品图`}>
@@ -1140,6 +1195,6 @@ export function App() {
       </div>
     </div> : null}
     {imageBusy ? <div className="image-busy">正在处理图片…</div> : null}
-    {toast && <div className="toast" role="status"><CheckCircle weight="fill" /><span><strong>操作成功</strong><small>{toast}</small></span><button type="button" aria-label="关闭提示" onClick={() => setToast("")}><X /></button></div>}
+    {toast && <div className={`toast${toast.tone === "error" ? " is-error" : ""}`} role="status">{toast.tone === "error" ? <WarningCircle weight="fill" /> : <CheckCircle weight="fill" />}<span><strong>{toast.tone === "error" ? "操作失败" : "操作成功"}</strong><small>{toast.text}</small></span><button type="button" aria-label="关闭提示" onClick={() => setToast(null)}><X /></button></div>}
   </div>;
 }

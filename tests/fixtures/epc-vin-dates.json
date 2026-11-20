@@ -1,0 +1,45 @@
+{
+  "msg": "success",
+  "code": "0",
+  "success": true,
+  "data": {
+    "msg": "success",
+    "data": {
+      "full_vin": "WP1AA2951HLB19468",
+      "brand": "保时捷",
+      "made_in_cn": "德国",
+      "model_year_from_vin": "2016",
+      "build_date": "2016.09.08",
+      "epc": "porsche",
+      "epc_id": "406",
+      "model_list": [
+        {
+          "Id": 71234,
+          "Brand": "保时捷",
+          "Series": "迈凯",
+          "Model": "Macan",
+          "Model_detail": "保时捷 迈凯 Macan 2.0T 双离合(7档) 四驱 2017款",
+          "Model_year": "2017",
+          "Date_begin": "2015-12-01",
+          "Date_end": "2018-07-25",
+          "Chassis_code": "95B",
+          "Engine_no": "CYP",
+          "Cc": "2.0T",
+          "Kw": "185",
+          "Hp": "252",
+          "Driving_mode": "前置四驱",
+          "Body_type": "SUV",
+          "Fuel_type": "汽油",
+          "Air_intake": "涡轮增压",
+          "Transmission_detail": "双离合变速器(DCT)",
+          "Gear_num": "7",
+          "Seat_num": "5",
+          "Sales_version": "四驱",
+          "Price": "550000",
+          "Epc": "porsche",
+          "Epc_id": "406"
+        }
+      ]
+    }
+  }
+}

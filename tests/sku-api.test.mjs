@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -14,7 +14,7 @@ async function withApi(run) {
   await new Promise((resolve) => app.listen(0, "127.0.0.1", resolve));
   const { port } = app.address();
   try {
-    await run(`http://127.0.0.1:${port}`);
+    await run(`http://127.0.0.1:${port}`, { directory, uploadDir: join(directory, "uploads") });
   } finally {
     await new Promise((resolve) => app.close(resolve));
     db.close();
@@ -329,36 +329,20 @@ test("group oe numbers are searchable and one can be primary", async () => {
   });
 });
 
-test("vin decoding reads brand and year, and learns a vehicle rule", async () => {
+test("vehicles keep a unique VIN and are searchable by it", async () => {
   await withApi(async (base) => {
-    const decoded = await request(base, "/api/vin/decode?vin=WP1AA2951HLB19468");
-    assert.equal(decoded.body.valid, true);
-    assert.equal(decoded.body.brand, "保时捷");
-    assert.equal(decoded.body.year, 2017);
-    assert.equal(decoded.body.plant, "莱比锡");
-    assert.equal(decoded.body.rule, null);
-
-    const invalid = await request(base, "/api/vin/decode?vin=WP1AA2951");
-    assert.equal(invalid.body.valid, false);
-
     const created = await request(base, "/api/vehicles", {
       method: "POST",
       body: JSON.stringify({
         vin: "WP1AA2951HLB19468", brand: "保时捷", series: "Macan", generation: "95B", platform: "95B",
-        yearFrom: 2014, yearTo: 2018, engine: "2.0T",
+        yearFrom: 2014, yearTo: 2018, engine: "2.0T", displacement: "2.0T",
         aliases: ["Macan", "95B"],
         products: [{ groupId: "of-ea839", partTypeId: "oil-filter" }],
       }),
     });
     assert.equal(created.response.status, 201);
     assert.equal(created.body.vin, "WP1AA2951HLB19468");
-
-    const learned = await request(base, "/api/vin/decode?vin=WP1AA2951HLB19468");
-    assert.equal(learned.body.rule.series, "Macan");
-    assert.equal(learned.body.rule.engine, "2.0T");
-
-    const rules = await request(base, "/api/vin/rules");
-    assert.equal(rules.body.items[0].prefix, "WP1AA295");
+    assert.equal(created.body.displacement, "2.0T");
 
     const duplicate = await request(base, "/api/vehicles", {
       method: "POST",
@@ -536,6 +520,13 @@ test("create, update and status changes persist", async () => {
     const activity = await request(base, "/api/skus/DEMO-AF01-001/activity");
     assert.equal(activity.response.status, 200);
     assert.equal(activity.body.items[0].action, "status");
+    assert.equal(activity.body.items[0].summary, "停用：资料调整");
+
+    const reEnabled = await request(base, "/api/skus/DEMO-AF01-001/status", { method: "PATCH", body: JSON.stringify({ status: "enabled" }) });
+    assert.equal(reEnabled.response.status, 200);
+    assert.equal(reEnabled.body.status, "enabled");
+    const reEnabledActivity = await request(base, "/api/skus/DEMO-AF01-001/activity");
+    assert.equal(reEnabledActivity.body.items[0].summary, "启用");
   });
 });
 
@@ -557,10 +548,45 @@ test("duplicate SKU codes and incomplete payloads are rejected", async () => {
   });
 });
 
-test("only draft SKUs can be deleted", async () => {
-  await withApi(async (base) => {
-    const blocked = await request(base, "/api/skus/DEMO-BP01-001", { method: "DELETE" });
-    assert.equal(blocked.response.status, 409);
+test("SKUs can be deleted in any status and related data is removed", async () => {
+  await withApi(async (base, { uploadDir }) => {
+    const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const created = await request(base, "/api/skus", {
+      method: "POST",
+      body: JSON.stringify({
+        group: { name: "可删除机油滤芯", reference: "DEL-01", category: "滤清器" },
+        sku: { id: "DEL-01-001", brand: "MANN", partNo: "DEL-001", unit: "个", packQuantity: 1, price: 66, status: "enabled" },
+        oeNumbers: ["DEL-OE-001"],
+        fitments: [{ make: "大众", series: "迈腾", yearFrom: 2018, yearTo: 2022, position: "发动机", verificationStatus: "verified" }],
+        imageDataUrl: png,
+      }),
+    });
+    assert.equal(created.response.status, 201);
+    assert.ok(created.body.image);
+    assert.equal(readdirSync(uploadDir).length, 1);
+
+    const relation = await request(base, "/api/skus/DEL-01-001/relations", {
+      method: "POST",
+      body: JSON.stringify({ type: "interchange", targetId: "DEMO-BP01-001" }),
+    });
+    assert.equal(relation.response.status, 201);
+
+    const removed = await request(base, "/api/skus/DEL-01-001", { method: "DELETE" });
+    assert.equal(removed.response.status, 204);
+
+    assert.equal((await request(base, "/api/skus/DEL-01-001")).response.status, 404);
+    assert.equal((await fetch(`${base}/api/skus/DEL-01-001/image`)).status, 404);
+    assert.equal(readdirSync(uploadDir).length, 0, "the image file is removed with the SKU");
+
+    const relations = await request(base, "/api/skus/DEMO-BP01-001/relations");
+    assert.equal(relations.body.interchanges.some((row) => row.sku.id === "DEL-01-001"), false);
+
+    const groups = await request(base, "/api/groups");
+    const group = groups.body.items.find((item) => item.reference === "DEL-01");
+    assert.equal(group.skuCount, 0, "the product group stays after its last SKU is deleted");
+
+    const again = await request(base, "/api/skus/DEL-01-001", { method: "DELETE" });
+    assert.equal(again.response.status, 204, "deleting a missing SKU stays idempotent");
 
     const draft = {
       group: { id: "brake" },

@@ -126,16 +126,23 @@ function migrate(db) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS vehicle_vin_rules (
-      prefix TEXT PRIMARY KEY,
-      brand TEXT NOT NULL DEFAULT '',
-      series TEXT NOT NULL DEFAULT '',
+    -- 旧版本地 VIN 规则表，随极联解码移除
+    DROP TABLE IF EXISTS vehicle_vin_rules;
+
+    CREATE TABLE IF NOT EXISTS epc_vin_cache (
+      vin TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      fetched_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS vehicle_generations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      series TEXT NOT NULL,
+      chassis_code TEXT NOT NULL,
       generation TEXT NOT NULL DEFAULT '',
-      engine TEXT NOT NULL DEFAULT '',
-      year_from INTEGER,
-      year_to INTEGER,
+      platform TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL
     );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_generations_key ON vehicle_generations(series, chassis_code);
     CREATE TABLE IF NOT EXISTS vehicle_aliases (
       vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
       alias TEXT NOT NULL,
@@ -211,6 +218,7 @@ function migrate(db) {
   ensureColumn(db, "skus", "oem_brand", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "skus", "image", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "vehicles", "vin", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "vehicles", "displacement", "TEXT NOT NULL DEFAULT ''");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicles_vin ON vehicles(vin) WHERE vin <> ''");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_skus_part_key ON skus(source_type, oem_brand, brand, part_no COLLATE NOCASE, origin) WHERE part_no <> ''");
   db.exec("DROP INDEX IF EXISTS idx_skus_brand_part_no");
@@ -292,6 +300,30 @@ function ensureReferenceData(db) {
     for (const [partTypeId, sortOrder] of items) insertSetItem.run(id, partTypeId, sortOrder);
   }
   ensureDictionarySeeds(db);
+  ensureVehicleGenerations(db);
+}
+
+/** 极联只返回底盘代号；代系（第几代）与平台代号由这张对照表补齐，配置中心可维护。 */
+const seedVehicleGenerations = [
+  ["凯宴", "9PA", "第一代", "9PA"],
+  ["凯宴", "E1", "第一代", "9PA"],
+  ["凯宴", "92A", "第二代", "92A"],
+  ["凯宴", "E2", "第二代", "92A"],
+  ["凯宴", "E3", "第三代", "9YA"],
+  ["凯宴", "9YA", "第三代", "9YA"],
+  ["迈凯", "95B", "第一代", "95B"],
+  ["帕拉梅拉", "970", "第一代", "970"],
+  ["帕拉梅拉", "971", "第二代", "971"],
+  ["Taycan", "9J1", "第一代", "9J1"],
+];
+
+function ensureVehicleGenerations(db) {
+  const insert = db.prepare(`INSERT OR IGNORE INTO vehicle_generations
+    (series, chassis_code, generation, platform, updated_at) VALUES (?, ?, ?, ?, ?)`);
+  const timestamp = now();
+  for (const [series, chassisCode, generation, platform] of seedVehicleGenerations) {
+    insert.run(series, chassisCode, generation, platform, timestamp);
+  }
 }
 
 function seedVehicleCatalog(db) {
@@ -365,7 +397,23 @@ export function openDatabase(file = process.env.SKU_DB_PATH || resolve("data/sku
   migrate(db);
   ensureReferenceData(db);
   ensureGroupOeSeeds(db);
+  backfillVehicleDisplacement(db);
   return db;
+}
+
+/** 排量字段后加，老车型留空时用极联缓存里的解析结果补一次（幂等，只填空值）。 */
+function backfillVehicleDisplacement(db) {
+  const rows = db.prepare("SELECT id, vin FROM vehicles WHERE vin <> '' AND TRIM(COALESCE(displacement, '')) = ''").all();
+  if (!rows.length) return;
+  const update = db.prepare("UPDATE vehicles SET displacement = ? WHERE id = ?");
+  for (const row of rows) {
+    const cached = db.prepare("SELECT payload FROM epc_vin_cache WHERE vin = ?").get(row.vin.toUpperCase());
+    if (!cached) continue;
+    try {
+      const displacement = String(JSON.parse(cached.payload).displacement || "").trim();
+      if (displacement) update.run(displacement, row.id);
+    } catch { /* 缓存坏了就跳过 */ }
+  }
 }
 
 /** 把 SKU 上已有的 OE 号上卷到商品组，作为组级 OE 的初始值（幂等）。 */
@@ -1366,7 +1414,8 @@ export function updateStatus(db, skuId, status, reason = "") {
   }
   db.prepare("UPDATE skus SET status = ?, updated_at = ? WHERE id = ?").run(status, now(), skuId);
   const updated = readSku(db, skuId);
-  logActivity(db, { skuId, action: "status", summary: `${status === "enabled" ? "启用" : status === "disabled" ? "停用" : "转为草稿"}：${reason || "未填写原因"}`, before: existing, after: updated });
+  const label = status === "enabled" ? "启用" : status === "disabled" ? "停用" : "转为草稿";
+  logActivity(db, { skuId, action: "status", summary: reason ? `${label}：${reason}` : label, before: existing, after: updated });
   return updated;
 }
 
@@ -1388,17 +1437,13 @@ export function updateSkuImage(db, skuId, filename) {
   return readSku(db, skuId);
 }
 
-export function deleteDraft(db, skuId) {
+/** 删除 SKU：OE 号、车型适配与替代关系由外键级联清理，组级 OE 保持不变。返回被删除的记录。 */
+export function deleteSku(db, skuId) {
   const existing = readSku(db, skuId);
-  if (!existing) return false;
-  if (existing.status !== "draft") {
-    const error = new Error("只有草稿 SKU 可以删除");
-    error.status = 409;
-    throw error;
-  }
+  if (!existing) return null;
   db.prepare("DELETE FROM skus WHERE id = ?").run(skuId);
-  logActivity(db, { skuId, action: "delete", summary: "删除草稿 SKU", before: existing });
-  return true;
+  logActivity(db, { skuId, action: "delete", summary: "删除 SKU", before: existing });
+  return existing;
 }
 
 const setKeywords = { "三滤": "sanlv", "四滤": "silv" };
@@ -1465,6 +1510,7 @@ function presentVehicle(db, vehicle, score = null) {
     yearFrom: vehicle.year_from,
     yearTo: vehicle.year_to,
     engine: vehicle.engine,
+    displacement: vehicle.displacement || "",
     body: vehicle.body,
     drive: vehicle.drive,
     label: vehicleLabel(vehicle),
@@ -1558,64 +1604,98 @@ function normalizeVehicleProducts(db, list) {
   return rows;
 }
 
-const VIN_WMI = {
-  WP0: "保时捷", WP1: "保时捷",
-  WVW: "大众", WV1: "大众", WAU: "奥迪",
-  WBA: "宝马", WBS: "宝马", WDD: "奔驰", WDB: "奔驰",
-  JHM: "本田", JTD: "丰田", JTJ: "雷克萨斯",
-  LFV: "大众", LSV: "大众", LGB: "日产", LSG: "别克", LDC: "标致",
+export function readEpcVinCache(db, rawVin = "") {
+  const row = db.prepare("SELECT payload, fetched_at AS fetchedAt FROM epc_vin_cache WHERE vin = ?").get(String(rawVin || "").trim().toUpperCase());
+  if (!row) return null;
+  try {
+    return { ...JSON.parse(row.payload), fetchedAt: row.fetchedAt };
+  } catch {
+    return null;
+  }
+}
+
+export function writeEpcVinCache(db, rawVin = "", payload = {}) {
+  db.prepare(`INSERT INTO epc_vin_cache (vin, payload, fetched_at) VALUES (?, ?, ?)
+    ON CONFLICT(vin) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at`)
+    .run(String(rawVin || "").trim().toUpperCase(), JSON.stringify(payload), now());
+}
+
+const generationRow = (row) => row && {
+  id: row.id,
+  series: row.series,
+  chassisCode: row.chassis_code,
+  generation: row.generation,
+  platform: row.platform,
+  updatedAt: row.updated_at,
 };
-const VIN_YEARS = {
-  A: 2010, B: 2011, C: 2012, D: 2013, E: 2014, F: 2015, G: 2016, H: 2017,
-  J: 2018, K: 2019, L: 2020, M: 2021, N: 2022, P: 2023, R: 2024, S: 2025,
-  T: 2026, V: 2027, W: 2028, X: 2029, Y: 2030,
-  "1": 2001, "2": 2002, "3": 2003, "4": 2004, "5": 2005, "6": 2006, "7": 2007, "8": 2008, "9": 2009,
-};
-const VIN_PLANTS = { L: "莱比锡", P: "斯图加特", B: "布拉迪斯拉发", S: "斯图加特" };
 
-function findVinRule(db, vin) {
-  return db.prepare("SELECT * FROM vehicle_vin_rules WHERE ? LIKE prefix || '%' ORDER BY LENGTH(prefix) DESC LIMIT 1").get(vin) || null;
+export function listVehicleGenerations(db) {
+  return db.prepare("SELECT * FROM vehicle_generations ORDER BY series, chassis_code").all().map(generationRow);
 }
 
-function upsertVinRule(db, input) {
-  if (!input.vin) return;
-  const prefix = input.vin.slice(0, 8);
-  db.prepare(`INSERT INTO vehicle_vin_rules (prefix, brand, series, generation, engine, year_from, year_to, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(prefix) DO UPDATE SET brand = excluded.brand, series = excluded.series, generation = excluded.generation,
-      engine = excluded.engine, year_from = excluded.year_from, year_to = excluded.year_to, updated_at = excluded.updated_at`)
-    .run(prefix, input.brand, input.series, input.generation, input.engine, input.yearFrom, input.yearTo, now());
+function normalizeGenerationInput(payload = {}) {
+  const series = String(payload.series || "").trim();
+  const chassisCode = String(payload.chassisCode || "").trim().toUpperCase();
+  const generation = String(payload.generation || "").trim();
+  const platform = String(payload.platform || "").trim();
+  const details = {};
+  if (!series) details.series = "请填写车系";
+  if (!chassisCode) details.chassisCode = "请填写底盘代号";
+  if (!generation && !platform) details.generation = "代系与平台代号至少填一个";
+  if (Object.keys(details).length) {
+    const error = new Error("代系对照不完整");
+    error.status = 422;
+    error.details = details;
+    throw error;
+  }
+  return { series, chassisCode, generation, platform };
 }
 
-export function decodeVin(db, rawVin = "") {
-  const vin = String(rawVin || "").trim().toUpperCase();
-  const valid = /^[A-HJ-NPR-Z0-9]{17}$/.test(vin);
-  const rule = valid ? findVinRule(db, vin) : null;
-  return {
-    vin,
-    valid,
-    wmi: vin.slice(0, 3),
-    brand: VIN_WMI[vin.slice(0, 3)] || "",
-    year: valid ? (VIN_YEARS[vin[9]] || null) : null,
-    plant: valid ? (VIN_PLANTS[vin[10]] || "") : "",
-    rule: rule ? {
-      prefix: rule.prefix,
-      brand: rule.brand,
-      series: rule.series,
-      generation: rule.generation,
-      engine: rule.engine,
-      yearFrom: rule.year_from,
-      yearTo: rule.year_to,
-    } : null,
-  };
+export function createVehicleGeneration(db, payload = {}) {
+  const input = normalizeGenerationInput(payload);
+  const clash = db.prepare("SELECT 1 FROM vehicle_generations WHERE series = ? AND chassis_code = ?").get(input.series, input.chassisCode);
+  if (clash) {
+    const error = new Error("该车系与底盘代号的对照已存在");
+    error.status = 409;
+    error.details = { chassisCode: "已存在相同对照" };
+    throw error;
+  }
+  const result = db.prepare(`INSERT INTO vehicle_generations (series, chassis_code, generation, platform, updated_at)
+    VALUES (?, ?, ?, ?, ?)`).run(input.series, input.chassisCode, input.generation, input.platform, now());
+  return generationRow(db.prepare("SELECT * FROM vehicle_generations WHERE id = ?").get(result.lastInsertRowid));
 }
 
-export function listVinRules(db) {
-  return db.prepare("SELECT prefix, brand, series, generation, engine, year_from AS yearFrom, year_to AS yearTo, updated_at AS updatedAt FROM vehicle_vin_rules ORDER BY updated_at DESC").all();
+export function updateVehicleGeneration(db, id, payload = {}) {
+  const current = db.prepare("SELECT * FROM vehicle_generations WHERE id = ?").get(Number(id));
+  if (!current) {
+    const error = new Error("代系对照不存在");
+    error.status = 404;
+    throw error;
+  }
+  const input = normalizeGenerationInput({ ...generationRow(current), ...payload });
+  const clash = db.prepare("SELECT 1 FROM vehicle_generations WHERE series = ? AND chassis_code = ? AND id <> ?")
+    .get(input.series, input.chassisCode, Number(id));
+  if (clash) {
+    const error = new Error("该车系与底盘代号的对照已存在");
+    error.status = 409;
+    error.details = { chassisCode: "已存在相同对照" };
+    throw error;
+  }
+  db.prepare("UPDATE vehicle_generations SET series = ?, chassis_code = ?, generation = ?, platform = ?, updated_at = ? WHERE id = ?")
+    .run(input.series, input.chassisCode, input.generation, input.platform, now(), Number(id));
+  return generationRow(db.prepare("SELECT * FROM vehicle_generations WHERE id = ?").get(Number(id)));
 }
 
-export function deleteVinRule(db, prefix) {
-  return db.prepare("DELETE FROM vehicle_vin_rules WHERE prefix = ?").run(String(prefix || "").toUpperCase()).changes > 0;
+export function deleteVehicleGeneration(db, id) {
+  return db.prepare("DELETE FROM vehicle_generations WHERE id = ?").run(Number(id)).changes > 0;
+}
+
+export function resolveVehicleGeneration(db, series, chassisCode) {
+  const code = String(chassisCode || "").trim();
+  const row = db.prepare("SELECT generation, platform FROM vehicle_generations WHERE series = ? AND chassis_code = ?")
+    .get(String(series || "").trim(), code.toUpperCase());
+  if (row) return { generation: row.generation || "", platform: row.platform || code };
+  return { generation: "", platform: code };
 }
 
 function normalizeVehicleInput(db, payload = {}) {
@@ -1648,6 +1728,7 @@ function normalizeVehicleInput(db, payload = {}) {
     yearFrom,
     yearTo,
     engine: String(payload.engine || "").trim(),
+    displacement: String(payload.displacement || "").trim(),
     body: String(payload.body || "").trim(),
     drive: String(payload.drive || "").trim(),
     note: String(payload.note || "").trim(),
@@ -1717,14 +1798,13 @@ export function createVehicle(db, payload) {
   db.exec("BEGIN");
   try {
     const id = uniqueVehicleId(db, vehicleIdBase(input));
-    db.prepare(`INSERT INTO vehicles (id, vin, brand, series, generation, platform, year_from, year_to, engine, body, drive, note, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    db.prepare(`INSERT INTO vehicles (id, vin, brand, series, generation, platform, year_from, year_to, engine, displacement, body, drive, note, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       id, input.vin, input.brand, input.series, input.generation, input.platform, input.yearFrom, input.yearTo,
-      input.engine, input.body, input.drive, input.note, timestamp, timestamp,
+      input.engine, input.displacement, input.body, input.drive, input.note, timestamp, timestamp,
     );
     replaceVehicleAliases(db, id, input.aliases);
     replaceVehicleProducts(db, id, input.products);
-    upsertVinRule(db, input);
     db.exec("COMMIT");
     return readVehicle(db, id);
   } catch (error) {
@@ -1753,13 +1833,12 @@ export function updateVehicle(db, vehicleId, payload) {
   db.exec("BEGIN");
   try {
     db.prepare(`UPDATE vehicles SET vin = ?, brand = ?, series = ?, generation = ?, platform = ?, year_from = ?, year_to = ?,
-      engine = ?, body = ?, drive = ?, note = ?, updated_at = ? WHERE id = ?`).run(
+      engine = ?, displacement = ?, body = ?, drive = ?, note = ?, updated_at = ? WHERE id = ?`).run(
       input.vin, input.brand, input.series, input.generation, input.platform, input.yearFrom, input.yearTo,
-      input.engine, input.body, input.drive, input.note, now(), vehicleId,
+      input.engine, input.displacement, input.body, input.drive, input.note, now(), vehicleId,
     );
     replaceVehicleAliases(db, vehicleId, input.aliases);
     replaceVehicleProducts(db, vehicleId, input.products);
-    upsertVinRule(db, input);
     db.exec("COMMIT");
     return readVehicle(db, vehicleId);
   } catch (error) {

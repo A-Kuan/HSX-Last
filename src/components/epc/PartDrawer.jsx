@@ -55,7 +55,7 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
     return null;
   };
 
-  return <aside className="epc-drawer epc-drawer--wide" role="dialog" aria-modal="true" aria-label="零件详情">
+  return <aside className={`epc-drawer epc-drawer--wide${products.length ? "" : " is-single"}`} role="dialog" aria-modal="true" aria-label="零件详情">
     <header>
       <div className="epc-card-title"><Package /><span>零件详情</span></div>
       <button type="button" className="epc-icon-btn" aria-label="关闭" onClick={onClose}><X /></button>
@@ -81,7 +81,7 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
         </form>
       </div> : null}
 
-      <div className="epc-drawer-grid">
+      <div className={`epc-drawer-grid${products.length ? "" : " is-single"}`}>
         <div className="epc-drawer-col">
           <section className="epc-part-section">
             <h3>替换件</h3>
@@ -109,27 +109,31 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
               </div>)}
             </div>
           </section> : null}
-
-          {products.length ? <section className="epc-part-section">
-            <h3>本店商品</h3>
-            <div className="epc-sku-list">
-              {products.map((item) => <a
-                className="epc-sku-row"
-                key={item.id}
-                href={`${API_BASE}/skus/${encodeURIComponent(item.id)}/image`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {item.hasImage
-                  ? <img src={`${API_BASE}/skus/${encodeURIComponent(item.id)}/image`} alt="" loading="lazy" />
-                  : <span className="epc-sku-noimg"><ImageSquare /></span>}
-                <span className="epc-sku-main"><strong>{item.partNo || item.name}</strong><em>{[item.brand, item.name].filter(Boolean).join(" · ")}</em></span>
-                <b>{item.price > 0 ? `¥${item.price.toFixed(2)}` : "面议"}</b>
-              </a>)}
-            </div>
-          </section> : null}
         </div>
 
+        {products.length ? <>
+          <div className="epc-drawer-sep" aria-hidden="true" />
+          <div className="epc-drawer-col">
+            <section className="epc-part-section">
+              <h3>本店商品</h3>
+              <div className="epc-sku-list">
+                {products.map((item) => <a
+                  className="epc-sku-row"
+                  key={item.id}
+                  href={`${API_BASE}/skus/${encodeURIComponent(item.id)}/image`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {item.hasImage
+                    ? <img src={`${API_BASE}/skus/${encodeURIComponent(item.id)}/image`} alt="" loading="lazy" />
+                    : <span className="epc-sku-noimg"><ImageSquare /></span>}
+                  <span className="epc-sku-main"><strong>{item.partNo || item.name}</strong><em>{[item.brand, item.name].filter(Boolean).join(" · ")}</em></span>
+                  <b>{item.price > 0 ? `¥${item.price.toFixed(2)}` : "面议"}</b>
+                </a>)}
+              </div>
+            </section>
+          </div>
+        </> : null}
       </div>
     </div>
 

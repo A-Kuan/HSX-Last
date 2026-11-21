@@ -1564,3 +1564,11 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
 /* 抽屉改为单栏：移除品牌件后不再需要右栏 */
 .epc-drawer--wide { width: min(720px, calc(100vw - 120px)); }
 .epc-drawer--wide .epc-drawer-grid { grid-template-columns: minmax(0, 1fr); }
+
+/* 本店商品放右栏 */
+.epc-drawer--wide { width: min(920px, calc(100vw - 120px)); }
+.epc-drawer--wide .epc-drawer-grid { grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1.05fr); }
+.epc-drawer--wide .epc-drawer-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+
+/* 没有本店商品时收窄为单栏 */
+.epc-drawer--wide.is-single { width: min(720px, calc(100vw - 120px)); }

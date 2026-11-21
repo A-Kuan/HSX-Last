@@ -38,7 +38,8 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
     }
   };
 
-  const replaceGroups = extras?.replace || [];
+  const replaceChain = extras?.replace?.chain || [];
+  const replaceAlternatives = extras?.replace?.alternatives || [];
   const articles = extras?.articles || [];
   const places = extras?.place || [];
 
@@ -74,12 +75,23 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
 
       <section className="epc-part-block">
         <h3>替换件</h3>
-        {extrasError ? <p className="field-note">{extrasError}</p> : !extras ? <p className="field-note">加载中…</p> : replaceGroups.length ? replaceGroups.map((group) => <div className="epc-replace-group" key={group.parent}>
-          <div className="epc-replacement-row"><span>原 OE 号</span><strong>{group.parent}</strong></div>
-          {group.items.map((item) => <div className="epc-replacement-row is-valid" key={item.oe}>
-            <span>替换 OE 号</span><strong>{item.oe}</strong><em>{[item.label, item.price ? `¥${item.price}` : ""].filter(Boolean).join(" · ")}</em>
+        {extrasError ? <p className="field-note">{extrasError}</p> : !extras ? <p className="field-note">加载中…</p> : replaceChain.length ? <div className="epc-replace-timeline">
+          {replaceChain.map((node, index) => <div className="epc-replace-step" key={node.oe}>
+            <span className="epc-replace-index">{index + 1}</span>
+            <div className="epc-replace-main">
+              <strong>{node.oe}</strong>
+              <em>{[node.label, node.price ? `¥${node.price}` : ""].filter(Boolean).join(" · ")}</em>
+            </div>
+            {index === 0 ? <span className="epc-replace-tag">起始</span> : index === replaceChain.length - 1 ? <span className="epc-replace-tag is-latest">最新</span> : null}
           </div>)}
-        </div>) : <p className="field-note">暂无替换件</p>}
+          {replaceAlternatives.length ? <div className="epc-replace-alt">
+            <span>通用替代</span>
+            {replaceAlternatives.map((item) => <div key={item.oe}>
+              <strong>{item.oe}</strong>
+              <em>{[item.label, item.price ? `¥${item.price}` : ""].filter(Boolean).join(" · ")}</em>
+            </div>)}
+          </div> : null}
+        </div> : <p className="field-note">暂无替换件</p>}
       </section>
 
       <section className="epc-part-block">

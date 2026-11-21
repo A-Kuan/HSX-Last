@@ -60,20 +60,64 @@ const vehicleQuery = async (vin) => {
   };
 };
 
-/** 替换件：按替换链分组，每组包含原号与替换号（含价格/可用性）。 */
-const normalizeReplace = (rows = []) => rows.map((group) => ({
-  parent: String(group.parentNum || ""),
-  brand: clean(group.brandCn),
-  replaced: String(group.isRe || "") === "1",
-  items: (group.pid || []).map((item) => ({
-    oe: String(item.pid || ""),
-    label: clean(item.lable),
-    brand: clean(item.brandcn),
-    price: Number(item.prices || item.hsPrice || 0) || 0,
-    available: item.available !== false,
-    remark: clean(item.remark),
-  })),
-}));
+/** 替换件：把 parent → child 的边整理成一条从最早（root）到最新的时间轴，另附通用替代。 */
+const normalizeReplace = (rows = []) => {
+  const seen = new Set();
+  const edges = [];
+  for (const group of rows) {
+    const parent = String(group.parentNum || "").trim();
+    for (const item of group.pid || []) {
+      const oe = String(item.pid || "").trim();
+      if (!parent || !oe) continue;
+      const key = parent + "|" + oe;
+      if (seen.has(key)) continue; // 同一条替换关系会在多个车型/配置里重复出现
+      seen.add(key);
+      edges.push({
+        parent,
+        oe,
+        label: clean(item.lable),
+        brand: clean(item.brandcn),
+        price: Number(item.prices || item.hsPrice || 0) || 0,
+        available: item.available !== false,
+        remark: clean(item.remark),
+        primary: String(group.isRe || "") === "1",
+      });
+    }
+  }
+  if (!edges.length) return { chain: [], alternatives: [] };
+  const byParent = new Map();
+  const incomingMeta = new Map();
+  for (const edge of edges) {
+    if (!byParent.has(edge.parent)) byParent.set(edge.parent, []);
+    byParent.get(edge.parent).push(edge);
+    if (!incomingMeta.has(edge.oe)) incomingMeta.set(edge.oe, edge);
+  }
+  // 起点：root 的第一个后继；没有 root 时取只做父节点、不做子节点的 OE
+  const childOes = new Set(edges.map((edge) => edge.oe));
+  const start = (byParent.get("root") || [])[0]?.oe
+    || edges.find((edge) => !childOes.has(edge.parent) && edge.parent !== "root")?.parent
+    || edges[0].oe;
+  const chain = [];
+  const used = new Set();
+  let current = start;
+  while (current && !used.has(current)) {
+    used.add(current);
+    const meta = incomingMeta.get(current) || {};
+    chain.push({
+      oe: current,
+      label: meta.label || "",
+      brand: meta.brand || "",
+      price: meta.price || 0,
+      available: meta.available !== false,
+    });
+    const outEdges = byParent.get(current) || [];
+    const nextEdge = outEdges.find((edge) => edge.primary) || outEdges[0];
+    current = nextEdge?.oe;
+  }
+  const usedOes = new Set(chain.map((node) => node.oe));
+  const alternatives = edges.filter((edge) => !edge.primary && !usedOes.has(edge.oe));
+  return { chain, alternatives };
+};
 
 /** 渠道价格：4S/原厂件等报价。 */
 const normalizePlace = (rows = []) => rows.map((row) => ({

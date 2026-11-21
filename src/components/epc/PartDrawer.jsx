@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Copy, ImageSquare, Package, PencilSimple, Plus, X } from "@phosphor-icons/react";
 import { API_BASE, api } from "../../api.js";
 
+const sourceLabelOf = (value) => ({ oem: "原厂件", brand: "品牌件", used: "拆车件" }[value] || "");
+
 const displayNameOf = (name) => String(name || "")
   .replace(/已包括/g, "· 含")
   .replace(/· 含\s+/g, "· 含")
@@ -127,7 +129,18 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
                   {item.hasImage
                     ? <img src={`${API_BASE}/skus/${encodeURIComponent(item.id)}/image`} alt="" loading="lazy" />
                     : <span className="epc-sku-noimg"><ImageSquare /></span>}
-                  <span className="epc-sku-main"><strong>{item.partNo || item.name}</strong><em>{[item.brand, item.name].filter(Boolean).join(" · ")}</em></span>
+                  <span className="epc-sku-main">
+                    <strong title={[item.name, item.id].filter(Boolean).join(" · ")}>{item.id}</strong>
+                    <em>{[
+                      sourceLabelOf(item.sourceType),
+                      item.origin,
+                      item.sourceType === "oem"
+                        ? [item.oemBrand, item.channel].filter(Boolean).join(" · ")
+                        : item.sourceType === "brand"
+                          ? item.brand
+                          : "",
+                    ].filter(Boolean).join(" · ")}</em>
+                  </span>
                   <b>{item.price > 0 ? `¥${item.price.toFixed(2)}` : "面议"}</b>
                 </a>)}
               </div>

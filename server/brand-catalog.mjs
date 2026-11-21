@@ -102,7 +102,7 @@ export function loadOeSkus(db, oe, limit = 6) {
   const key = oeKeyOf(oe);
   if (!key) return [];
   const rows = db.prepare(`
-    SELECT DISTINCT s.id, s.brand, s.part_no, s.price, s.image, s.note, g.name, g.category
+    SELECT DISTINCT s.id, s.brand, s.part_no, s.price, s.image, s.note, s.source_type, s.oem_brand, s.origin, s.channel, g.name, g.category
     FROM skus s
     JOIN product_groups g ON g.id = s.group_id
     WHERE s.status = 'enabled' AND (
@@ -119,6 +119,10 @@ export function loadOeSkus(db, oe, limit = 6) {
     price: Number(row.price || 0),
     note: clean(row.note),
     name: clean(row.name),
+    sourceType: clean(row.source_type),
+    oemBrand: clean(row.oem_brand),
+    origin: clean(row.origin),
+    channel: clean(row.channel),
     category: clean(row.category),
     hasImage: Boolean(row.image),
   }));

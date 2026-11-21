@@ -21,8 +21,6 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
   }, [vin, oe]);
 
   if (!part) return null;
-  const status = part.discontinued || part.applicable === false ? "discontinued" : "normal";
-  const statusText = status === "discontinued" ? "已停用" : "正常";
   const aliases = part.aliases || [];
 
   const submitAlias = async (event) => {
@@ -38,7 +36,7 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
     }
   };
 
-  const replaceChain = extras?.replace?.chain || [];
+  const replaceChain = [...(extras?.replace?.chain || [])].reverse();
   const replaceAlternatives = extras?.replace?.alternatives || [];
   const articles = extras?.articles || [];
   const places = extras?.place || [];
@@ -52,15 +50,6 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
       <div className="epc-part-photo"><Package /></div>
       <h2 className="epc-drawer-oe">{part.oe}</h2>
       <p className="epc-drawer-name">{part.name}</p>
-      <span className={`epc-status is-${status}`}><i />{statusText}</span>
-      <dl className="epc-detail-list">
-        <div><dt>图号位置</dt><dd>{part.position || "—"}</dd></div>
-        <div><dt>数量</dt><dd>{part.quantity || "—"}</dd></div>
-        <div><dt>型号</dt><dd>{part.model || "—"}</dd></div>
-        <div><dt>参考价格</dt><dd>{part.price || "—"}</dd></div>
-        <div><dt>适用车型</dt><dd>{vehicleName || "—"}</dd></div>
-      </dl>
-
       <section className="epc-part-alias">
         <h3>零件别名</h3>
         {aliases.length ? <div className="epc-alias-chips">{aliases.map((item) => <span key={item.id} className="epc-alias-chip">
@@ -82,7 +71,7 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
               <strong>{node.oe}</strong>
               <em>{[node.label, node.price ? `¥${node.price}` : ""].filter(Boolean).join(" · ")}</em>
             </div>
-            {index === 0 ? <span className="epc-replace-tag">起始</span> : index === replaceChain.length - 1 ? <span className="epc-replace-tag is-latest">最新</span> : null}
+            {index === 0 ? <span className="epc-replace-tag is-latest">最新</span> : index === replaceChain.length - 1 ? <span className="epc-replace-tag">起始</span> : null}
           </div>)}
           {replaceAlternatives.length ? <div className="epc-replace-alt">
             <span>通用替代</span>

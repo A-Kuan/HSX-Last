@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CarProfile, MagnifyingGlass, X } from "@phosphor-icons/react";
 import { api } from "../../api.js";
 import CategorySidebar from "./CategorySidebar.jsx";
@@ -6,6 +6,7 @@ import DiagramPanel from "./DiagramPanel.jsx";
 import PartsPanel from "./PartsPanel.jsx";
 import PartDrawer from "./PartDrawer.jsx";
 import SelectedBar from "./SelectedBar.jsx";
+import VehicleConfigModal from "./VehicleConfigModal.jsx";
 import EpcLoginModal from "../EpcLoginModal.jsx";
 
 const emptyPart = { parts: [], hotspots: [], image: "" };
@@ -38,8 +39,13 @@ export default function EpcWorkbench({ initialVin = "" }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const [inquiry, setInquiry] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
   const [epcStatus, setEpcStatus] = useState(null);
   const [selectedOpen, setSelectedOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const [searchData, setSearchData] = useState(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchTimer = useRef(null);
 
   useEffect(() => {
     api("/epc/status").then(setEpcStatus).catch(() => setEpcStatus({ configured: false, quota: null }));
@@ -149,6 +155,119 @@ export default function EpcWorkbench({ initialVin = "" }) {
     }
   };
 
+  const openReference = async (reference) => {
+    if (!catalog || !reference?.mid) return;
+    const num = reference.mid.slice(0, 1);
+    setGroupLoading(true);
+    try {
+      const list = await loadGroup(num, catalog.vehicle.vin);
+      const target = list.find((item) => item.mid === reference.mid);
+      if (!target) {
+        notify("没有找到对应的图板");
+        return;
+      }
+      setGroupNum(num);
+      setSubgroups(list);
+      await openDiagram(target);
+      if (reference.position) setSelectedCallout(reference.position);
+    } catch (loadError) {
+      notify(loadError.message);
+    } finally {
+      setGroupLoading(false);
+    }
+  };
+
+  const addAlias = async (part, alias) => {
+    if (!diagram) return;
+    try {
+      const row = await api("/part-aliases", {
+        method: "POST",
+        body: JSON.stringify({ oe: part.oe, alias, officialName: part.name, mid: diagram.mid, figure: diagram.figure, position: part.position }),
+      });
+      const attach = (item) => (item.key === part.key
+        ? { ...item, aliases: [...(item.aliases || []).filter((entry) => entry.id !== row.id), { id: row.id, alias: row.alias, source: row.source }] }
+        : item);
+      setParts((list) => list.map(attach));
+      setActivePart((current) => (current && current.key === part.key ? attach(current) : current));
+      notify("已添加别名");
+    } catch (aliasError) {
+      notify(aliasError.message);
+    }
+  };
+
+  const removeAlias = async (part, id) => {
+    try {
+      await api(`/part-aliases/${id}`, { method: "DELETE" });
+      const strip = (item) => (item.key === part.key ? { ...item, aliases: (item.aliases || []).filter((entry) => entry.id !== id) } : item);
+      setParts((list) => list.map(strip));
+      setActivePart((current) => (current && current.key === part.key ? strip(current) : current));
+      notify("已删除别名");
+    } catch (aliasError) {
+      notify(aliasError.message);
+    }
+  };
+
+  const openSearchResult = async (item) => {
+    setSearchOpen(false);
+    if (!catalog) return;
+    const num = String(item.groupNum || String(item.mid).slice(0, 1));
+    setGroupLoading(true);
+    try {
+      const list = await loadGroup(num, catalog.vehicle.vin);
+      const target = list.find((sub) => sub.mid === item.mid);
+      if (!target) {
+        notify("这台车没有该图号");
+        return;
+      }
+      setGroupNum(num);
+      setSubgroups(list);
+      await openDiagram(target);
+      if (item.position) setSelectedCallout(String(item.position));
+    } catch (jumpError) {
+      notify(jumpError.message);
+    } finally {
+      setGroupLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const q = searchQ.trim();
+    window.clearTimeout(searchTimer.current);
+    if (!catalog || !q) {
+      setSearchData(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const data = await api(`/epc/search?vin=${encodeURIComponent(catalog.vehicle.vin)}&q=${encodeURIComponent(q)}`);
+        if (cancelled) return;
+        setSearchData(data);
+        setSearchOpen(true);
+        if (data.status === "building") searchTimer.current = window.setTimeout(run, 1500);
+      } catch (searchError) {
+        if (!cancelled) {
+          setSearchData({ status: "error", error: searchError.message, results: [] });
+          setSearchOpen(true);
+        }
+      }
+    };
+    searchTimer.current = window.setTimeout(run, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(searchTimer.current);
+    };
+  }, [searchQ, catalog]);
+
+  useEffect(() => {
+    if (!searchOpen) return undefined;
+    const onDown = (event) => {
+      if (!event.target.closest(".epc-alias-search")) setSearchOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [searchOpen]);
+
   const copyText = async (text, message) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -204,10 +323,11 @@ export default function EpcWorkbench({ initialVin = "" }) {
         {vin ? <button type="button" className="epc-vin-clear" aria-label="清空 VIN" onClick={() => { setVin(""); setError(""); }}><X /></button> : null}
       </label>
       <button className="epc-primary-btn epc-vin-submit" type="submit" disabled={loading || !vin.trim()}>{loading ? "查询中..." : "查询"}</button>
-      {catalog ? <div className="epc-vehicle-info">
+      {catalog ? <button type="button" className="epc-vehicle-info" onClick={() => setConfigOpen(true)} aria-label="查看车型配置">
         <span className="epc-vehicle-icon"><CarProfile /></span>
-        <div><strong>{vehicleLabel}</strong><span>{catalog.vehicle.vin}</span></div>
-      </div> : null}
+        <span className="epc-vehicle-text"><strong>{vehicleLabel}</strong><span>{catalog.vehicle.vin}</span></span>
+        <span className="epc-vehicle-more">车型配置</span>
+      </button> : null}
       <button type="button" className="secondary-button epc-account" onClick={() => setLoginOpen(true)}>
         {epcStatus?.configured ? `极联 · 余 ${epcStatus.quota?.remaining ?? "—"} 次` : "极联登录"}
       </button>
@@ -218,10 +338,34 @@ export default function EpcWorkbench({ initialVin = "" }) {
       <button type="button" className={`epc-pill${!diagram ? " is-active" : ""}`} onClick={() => selectCategory("")}>全部</button>
       {diagram ? <button type="button" className="epc-ghost-btn" onClick={backToDiagrams}>返回分组</button> : null}
       {diagram ? <span className="epc-crumb"><b>{diagram.figure}</b>{diagram.name}</span> : null}
+      <div className="epc-alias-search">
+        <MagnifyingGlass />
+        <input
+          aria-label="搜索零件"
+          placeholder="搜索 OE / 名称 / 别名"
+          value={searchQ}
+          onChange={(event) => { setSearchQ(event.target.value); setSearchOpen(true); }}
+          onFocus={() => { if (searchData) setSearchOpen(true); }}
+        />
+        {searchOpen && searchData ? <div className="epc-search-pop">
+          {searchData.status === "building" ? <p className="field-note">正在建立检索索引 {searchData.progress}/{searchData.total || "—"}</p>
+            : searchData.status === "error" ? <p className="field-note">{searchData.error}</p>
+            : searchData.results?.length ? searchData.results.map((item) => <button
+              key={`${item.mid}-${item.position}-${item.oe}`}
+              type="button"
+              className="epc-search-row"
+              onClick={() => openSearchResult(item)}
+            >
+              <span className="epc-search-figure">{item.figure}</span>
+              <span className="epc-search-main"><strong>{item.oe || "参见"}</strong><em>{item.name}</em></span>
+              {item.aliases?.length ? <span className="epc-search-alias">{item.aliases[0]}</span> : null}
+            </button>) : <p className="field-note">没有匹配项</p>}
+        </div> : null}
+      </div>
     </div> : null}
 
-    {catalog ? <div className="epc-main">
-      <CategorySidebar groups={catalog.groups} activeNum={groupNum} counts={counts} loading={loading} onSelect={selectCategory} />
+    {catalog ? <div className={`epc-main ${diagram ? "is-diagram" : "is-picker"}`}>
+      {diagram ? null : <CategorySidebar groups={catalog.groups} activeNum={groupNum} counts={counts} loading={loading} onSelect={selectCategory} />}
       <DiagramPanel
         subgroup={diagram}
         diagrams={subgroups}
@@ -233,7 +377,7 @@ export default function EpcWorkbench({ initialVin = "" }) {
         onPickDiagram={openDiagram}
         onToast={notify}
       />
-      <PartsPanel
+      {diagram ? <PartsPanel
         parts={parts}
         loading={partsLoading || groupLoading}
         statusFilter={statusFilter}
@@ -243,7 +387,9 @@ export default function EpcWorkbench({ initialVin = "" }) {
         selectedIds={selected.map((item) => item.key)}
         onToggle={togglePart}
         onOpenPart={setActivePart}
-      />
+        onOpenReference={openReference}
+        onCopyOe={(oe) => copyText(oe, "已复制 OE 号")}
+      /> : null}
     </div> : <div className="epc-empty">
       <p>输入 VIN 查询后选择零件分组</p>
     </div>}
@@ -278,6 +424,8 @@ export default function EpcWorkbench({ initialVin = "" }) {
         inList={selected.some((item) => item.key === activePart.key)}
         onClose={() => setActivePart(null)}
         onAdd={(part) => { if (!selected.some((item) => item.key === part.key)) togglePart(part); notify("已加入选件清单"); }}
+        onAddAlias={(alias) => addAlias(activePart, alias)}
+        onRemoveAlias={(id) => removeAlias(activePart, id)}
       />
     </div> : null}
 
@@ -305,6 +453,7 @@ export default function EpcWorkbench({ initialVin = "" }) {
     </div> : null}
 
     {toast ? <div className="epc-toast">{toast}</div> : null}
+    {configOpen && catalog ? <VehicleConfigModal vehicle={catalog.vehicle} onClose={() => setConfigOpen(false)} /> : null}
     {loginOpen && <EpcLoginModal onClose={() => setLoginOpen(false)} onToast={notify} onSaved={(data) => setEpcStatus(data)} />}
   </main>;
 }

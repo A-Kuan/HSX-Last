@@ -925,6 +925,23 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
 .epc-vehicle-info { display: flex; align-items: center; gap: 10px; margin-left: 6px; min-width: 0; }
 .epc-vehicle-icon { width: 56px; height: 40px; border-radius: 8px; background: #f1f4f9; display: grid; place-items: center; color: #4b5563; flex: none; }
 .epc-vehicle-icon svg { width: 28px; height: 28px; }
+.epc-vehicle-info { border: 0; background: transparent; padding: 4px 8px; border-radius: 12px; cursor: pointer; text-align: left; }
+.epc-vehicle-info:hover { background: #f4f7fc; }
+.epc-vehicle-info:focus-visible { outline: 2px solid var(--brand-ring); }
+.epc-vehicle-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.epc-vehicle-more { margin-left: 4px; font-size: 12px; color: var(--brand); white-space: nowrap; }
+.epc-config-modal { width: 560px; max-height: min(720px, calc(100vh - 80px)); display: flex; flex-direction: column; background: var(--card); border-radius: 14px; overflow: hidden; box-shadow: 0 24px 60px rgba(23, 32, 51, .18); }
+.epc-config-modal > header { display: flex; align-items: center; gap: 10px; padding: 16px 18px 10px; flex: none; }
+.epc-config-modal > header .epc-card-title { font-size: 16px; font-weight: 600; }
+.epc-config-head { padding: 0 18px 12px; display: flex; flex-direction: column; gap: 2px; flex: none; }
+.epc-config-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.epc-config-vin { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.epc-config-search { padding: 0 18px 12px; flex: none; }
+.epc-config-search .local-search { width: 100%; height: 40px; border-radius: 10px; }
+.epc-config-list { flex: 1; overflow: auto; min-height: 0; border-top: 1px solid var(--line); }
+.epc-config-row { display: flex; justify-content: space-between; gap: 20px; padding: 13px 18px; border-bottom: 1px solid #f1f4f8; font-size: 14px; }
+.epc-config-row span { color: var(--muted); flex: none; }
+.epc-config-row strong { font-weight: 500; color: var(--text); text-align: right; word-break: break-word; }
 .epc-vehicle-info strong { display: block; font-size: 16px; font-weight: 600; color: var(--text); }
 .epc-vehicle-info span { display: block; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .epc-breadcrumb-row { display: flex; align-items: center; gap: 10px; flex: none; }
@@ -937,7 +954,7 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
 .epc-ghost-btn:disabled { color: var(--faint); cursor: not-allowed; }
 .epc-crumb { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--muted); min-width: 0; }
 .epc-crumb b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
-.epc-main { display: grid; grid-template-columns: 240px minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; flex: 1; min-height: 0; }
+.epc-main { display: grid; grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.5fr); gap: 14px; flex: 1; min-height: 0; }
 .epc-card { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--card); border: 1px solid #eceff4; border-radius: 16px; overflow: hidden; }
 .epc-card-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: var(--text); min-width: 0; flex: 1 1 auto; overflow: hidden; }
 .epc-card-title svg { width: 20px; height: 20px; color: #3a4453; flex: none; }
@@ -1076,7 +1093,7 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
   .epc-vin-submit { height: 46px; padding: 0 20px; font-size: 15px; }
   .epc-vehicle-icon { width: 44px; height: 32px; }
   .epc-vehicle-icon svg { width: 22px; height: 22px; }
-  .epc-main { grid-template-columns: 208px minmax(0, 1.15fr) minmax(0, 1fr); gap: 10px; }
+  .epc-main { grid-template-columns: 200px minmax(0, 0.85fr) minmax(0, 1.55fr); gap: 10px; }
   .epc-card-title { font-size: 15px; }
   .epc-category { height: 44px; font-size: 15px; padding: 0 10px; gap: 10px; }
   .epc-category img, .epc-category svg { width: 20px; height: 20px; }
@@ -1089,7 +1106,13 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
   .epc-parts-table tbody td { padding: 9px 8px; font-size: 14px; }
   .epc-cell-oe .epc-oe { font-size: 15px; }
   .epc-cell-name .epc-name { font-size: 14px; }
-  .epc-col-check, .epc-parts-table th:nth-child(1), .epc-parts-table td:nth-child(1) { width: 38px; }
+  .epc-col-check, .epc-parts-table th:nth-child(1), .epc-parts-table td:nth-child(1) { width: 30px; }
+  .epc-parts-table th:nth-child(2), .epc-parts-table td:nth-child(2) { width: 40px; }
+  .epc-parts-table th:nth-child(3), .epc-parts-table td:nth-child(3) { width: 104px; }
+  .epc-parts-table th:nth-child(6), .epc-parts-table td:nth-child(6) { width: 38px; }
+  .epc-parts-table th:nth-child(7), .epc-parts-table td:nth-child(7) { width: 56px; }
+  .epc-parts-table th:nth-child(8), .epc-parts-table td:nth-child(8) { width: 76px; }
+  .epc-cell-remark { font-size: 12px; }
   .epc-parts-table th:nth-child(3), .epc-parts-table td:nth-child(3) { width: 132px; }
   .epc-diagram { padding: 14px; }
   .epc-zoom-stack { right: 10px; gap: 6px; }
@@ -1167,3 +1190,116 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
 /* 零件列表去掉标题栏与搜索框后，筛选行直接贴顶，左侧与表格对齐 */
 .epc-parts-card { padding-top: 14px; }
 .epc-parts-filters { padding-top: 0; }
+
+/* ---------- EPC 零件表列宽（含「备注」列）最终覆盖，放最后保证生效 ---------- */
+.epc-main { grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.5fr); }
+.epc-parts-table th:nth-child(1), .epc-parts-table td:nth-child(1) { width: 34px; }
+.epc-parts-table th:nth-child(2), .epc-parts-table td:nth-child(2) { width: 44px; }
+.epc-parts-table th:nth-child(3), .epc-parts-table td:nth-child(3) { width: 112px; }
+.epc-parts-table th:nth-child(6), .epc-parts-table td:nth-child(6) { width: 44px; }
+.epc-parts-table th:nth-child(7), .epc-parts-table td:nth-child(7) { width: 62px; }
+.epc-parts-table th:nth-child(8), .epc-parts-table td:nth-child(8) { width: 86px; }
+.epc-cell-remark { color: var(--muted); font-size: 13px; }
+@media (max-width: 1500px) {
+  .epc-main { grid-template-columns: 200px minmax(0, 0.85fr) minmax(0, 1.55fr); }
+  .epc-parts-table th:nth-child(1), .epc-parts-table td:nth-child(1) { width: 30px; }
+  .epc-parts-table th:nth-child(2), .epc-parts-table td:nth-child(2) { width: 40px; }
+  .epc-parts-table th:nth-child(3), .epc-parts-table td:nth-child(3) { width: 104px; }
+  .epc-parts-table th:nth-child(6), .epc-parts-table td:nth-child(6) { width: 38px; }
+  .epc-parts-table th:nth-child(7), .epc-parts-table td:nth-child(7) { width: 56px; }
+  .epc-parts-table th:nth-child(8), .epc-parts-table td:nth-child(8) { width: 76px; }
+  .epc-cell-remark { font-size: 12px; }
+}
+
+/* 备注列（第 5 列）宽度：前面的 nth-child(5) 是旧「数量」列宽，必须覆盖 */
+.epc-parts-table th:nth-child(5), .epc-parts-table td:nth-child(5) { width: 150px; }
+@media (max-width: 1500px) {
+  .epc-parts-table th:nth-child(5), .epc-parts-table td:nth-child(5) { width: 120px; }
+}
+
+/* 备注列加入后的最终列宽（OE 不能截断、状态不折断） */
+.epc-parts-table th:nth-child(3), .epc-parts-table td:nth-child(3) { width: 140px; }
+.epc-parts-table th:nth-child(5), .epc-parts-table td:nth-child(5) { width: 130px; }
+.epc-parts-table th:nth-child(7), .epc-parts-table td:nth-child(7) { width: 68px; }
+.epc-parts-table th:nth-child(8), .epc-parts-table td:nth-child(8) { width: 92px; }
+@media (max-width: 1500px) {
+  .epc-parts-table th:nth-child(3), .epc-parts-table td:nth-child(3) { width: 124px; }
+  .epc-parts-table th:nth-child(5), .epc-parts-table td:nth-child(5) { width: 108px; }
+  .epc-parts-table th:nth-child(7), .epc-parts-table td:nth-child(7) { width: 60px; }
+  .epc-parts-table th:nth-child(8), .epc-parts-table td:nth-child(8) { width: 80px; }
+}
+
+/* ---------- 交互：默认两列（分类 + 图号），打开图号后隐藏分类、显示零件表 ---------- */
+.epc-main.is-picker { grid-template-columns: 240px minmax(0, 1fr); }
+.epc-main.is-diagram { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
+@media (max-width: 1500px) {
+  .epc-main.is-picker { grid-template-columns: 200px minmax(0, 1fr); }
+  .epc-main.is-diagram { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr); }
+}
+
+/* 图号态两列比例：左侧图纸收窄，右侧零件表加宽 */
+.epc-main.is-diagram { grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.45fr); }
+@media (max-width: 1500px) {
+  .epc-main.is-diagram { grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.4fr); }
+}
+
+/* 勾选列必须放得下 26px 复选框（列宽含左右 12px padding，34px 会把方框裁掉） */
+.epc-parts-table th:nth-child(1), .epc-parts-table td:nth-child(1) { width: 50px; }
+.epc-parts-table th:nth-child(1), .epc-parts-table td:nth-child(1) { padding-left: 12px; padding-right: 4px; }
+@media (max-width: 1500px) {
+  .epc-parts-table th:nth-child(1), .epc-parts-table td:nth-child(1) { width: 44px; padding-left: 8px; padding-right: 2px; }
+}
+
+/* 「参见图板」行：无 OE、不可勾选，OE 位显示跳转链接 */
+.epc-ref-link { border: 0; background: none; padding: 0; font: inherit; font-size: 14px; color: var(--brand); cursor: pointer; font-variant-numeric: tabular-nums; }
+.epc-ref-link:hover { text-decoration: underline; }
+.epc-ref-name { color: var(--muted); }
+.epc-status.is-reference { color: var(--muted); }
+.epc-parts-table tbody tr.is-reference .epc-cell-pos { color: var(--muted); }
+
+/* 爆炸图容器隐藏滚动条（滚轮 / 拖拽仍然可用） */
+.epc-diagram { scrollbar-width: none; -ms-overflow-style: none; }
+.epc-diagram::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+/* ---------- 零件别名 / 跨图搜索 ---------- */
+.epc-name-alias { display: block; margin-top: 3px; font-size: 12px; line-height: 16px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epc-part-alias { margin-top: 18px; }
+.epc-part-alias h3 { font-size: 14px; margin: 0 0 10px; }
+.epc-alias-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.epc-alias-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 10px; border-radius: 8px; background: #eef3ff; color: var(--brand); font-size: 13px; }
+.epc-alias-chip button { border: 0; background: none; padding: 3px; display: grid; place-items: center; color: inherit; cursor: pointer; border-radius: 4px; }
+.epc-alias-chip button:hover { background: #dbe6ff; }
+.epc-alias-chip svg { width: 12px; height: 12px; }
+.epc-alias-form { display: flex; gap: 8px; }
+.epc-alias-form input { flex: 1; height: 36px; border: 1px solid var(--line-strong); border-radius: 8px; padding: 0 10px; font-size: 13px; color: var(--text); background: var(--card); }
+.epc-alias-form input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-ring); outline: 0; }
+.epc-alias-form button { height: 36px; gap: 4px; }
+.epc-alias-search { position: relative; margin-left: auto; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card); color: var(--muted); min-width: 300px; }
+.epc-alias-search > svg { width: 16px; height: 16px; flex: none; }
+.epc-alias-search input { border: 0; outline: 0; flex: 1; height: 100%; font-size: 13px; background: transparent; color: var(--text); }
+.epc-alias-search:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-ring); }
+.epc-search-pop { position: absolute; top: calc(100% + 6px); right: 0; width: min(560px, 72vw); max-height: 420px; overflow: auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 18px 40px rgba(23, 32, 51, .12); padding: 6px; z-index: 30; }
+.epc-search-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; background: none; border-radius: 8px; text-align: left; cursor: pointer; }
+.epc-search-row:hover { background: #f4f7fc; }
+.epc-search-figure { flex: none; width: 64px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.epc-search-main { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.epc-search-main strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+.epc-search-main em { font-style: normal; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epc-search-alias { margin-left: auto; flex: none; font-size: 12px; color: var(--brand); background: #eef3ff; padding: 2px 8px; border-radius: 6px; }
+
+/* 图号选择网格：每行 5 个（大屏），窄屏自动退到 4 个 */
+.epc-diagram-picker { grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); }
+
+/* 配置中心 · 零件别名 */
+.pa-alias-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pa-alias-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 10px; border-radius: 8px; background: #eef3ff; color: var(--brand); font-size: 13px; }
+.pa-alias-chip em { font-style: normal; font-size: 11px; color: var(--muted); background: #fff; border-radius: 4px; padding: 1px 5px; }
+.pa-alias-chip button { border: 0; background: none; padding: 3px; display: grid; place-items: center; color: inherit; cursor: pointer; border-radius: 4px; }
+.pa-alias-chip button:hover { background: #dbe6ff; }
+.pa-alias-chip svg { width: 12px; height: 12px; }
+
+.pa-hits { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* 图号列可点：在爆炸图中定位；OE 列可点：复制 OE 号 */
+.epc-pos-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--text); font-variant-numeric: tabular-nums; cursor: pointer; }
+.epc-pos-btn:hover { color: var(--brand); }

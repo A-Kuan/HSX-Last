@@ -3,6 +3,8 @@ import { ArrowsIn, ArrowsOut, BookOpen, CornersOut, MagnifyingGlassMinus, Magnif
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 4;
+const ZOOM_STEP = 0.15;
+const clampZoom = (value) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100));
 
 /** 爆炸图面板：缩放（滚轮以光标为中心）、拖拽平移、图号热区、缩略导航、全屏。 */
 export default function DiagramPanel({
@@ -19,22 +21,97 @@ export default function DiagramPanel({
   const cardRef = useRef(null);
   const boxRef = useRef(null);
   const canvasRef = useRef(null);
+  const imgRef = useRef(null);
+  const labelRef = useRef(null);
   const dragRef = useRef(null);
-  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1);
+  const fitRef = useRef(0);
+  const frameRef = useRef(0);
+  const pendingRef = useRef(null);
+  const naturalRef = useRef({ w: 0, h: 0 });
   const [natural, setNatural] = useState({ w: 0, h: 0 });
-  const [fitWidth, setFitWidth] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
 
+  // 缩放直接写 DOM（width + 百分比文字），不进 React state：滚轮连续触发时不再整块重渲染
+  const paintZoom = (value) => {
+    const canvas = canvasRef.current;
+    const fit = fitRef.current;
+    zoomRef.current = value;
+    if (canvas && fit) canvas.style.width = `${Math.round(fit * value)}px`;
+    if (labelRef.current) labelRef.current.textContent = `${Math.round(value * 100)}%`;
+  };
+
+  const measureFit = () => {
+    const box = boxRef.current;
+    const img = imgRef.current;
+    if (!box || !img || !img.naturalWidth) return 1;
+    const ratio = img.naturalWidth / img.naturalHeight;
+    const width = Math.min(box.clientWidth - 48, (box.clientHeight - 48) * ratio);
+    fitRef.current = Math.max(80, Math.round(width));
+    return 1;
+  };
+
+  const refit = () => {
+    const zoomValue = measureFit();
+    paintZoom(zoomValue);
+    const box = boxRef.current;
+    if (box) box.scrollTo({ left: 0, top: 0 });
+  };
+
+  const zoomAt = (nextZoom, clientX, clientY) => {
+    const box = boxRef.current;
+    const canvas = canvasRef.current;
+    const value = clampZoom(nextZoom);
+    if (!box || !canvas || !fitRef.current) {
+      paintZoom(value);
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      paintZoom(value);
+      return;
+    }
+    const fx = (clientX - rect.left) / rect.width;
+    const fy = (clientY - rect.top) / rect.height;
+    const boxRect = box.getBoundingClientRect();
+    const style = getComputedStyle(box);
+    const padLeft = parseFloat(style.paddingLeft) || 0;
+    const padTop = parseFloat(style.paddingTop) || 0;
+    const nextWidth = fitRef.current * value;
+    const nextHeight = (nextWidth * naturalRef.current.h) / Math.max(1, naturalRef.current.w);
+    paintZoom(value);
+    box.scrollLeft = padLeft - (clientX - boxRect.left) + fx * nextWidth;
+    box.scrollTop = padTop - (clientY - boxRect.top) + fy * nextHeight;
+  };
+
+  // 滚轮按帧合并：一帧最多应用一次缩放，避免每个 wheel 事件都触发一轮布局
+  const scheduleZoom = (nextZoom, clientX, clientY) => {
+    pendingRef.current = { value: nextZoom, x: clientX, y: clientY };
+    if (frameRef.current) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = 0;
+      const pending = pendingRef.current;
+      pendingRef.current = null;
+      if (pending) zoomAt(pending.value, pending.x, pending.y);
+    });
+  };
+
+  useEffect(() => () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); }, []);
+
   useEffect(() => {
-    setZoom(1);
     setNatural({ w: 0, h: 0 });
-    setFitWidth(0);
+    naturalRef.current = { w: 0, h: 0 };
+    zoomRef.current = 1;
+    fitRef.current = 0;
     const box = boxRef.current;
     if (box) box.scrollTo({ left: 0, top: 0 });
   }, [subgroup?.mid]);
 
   useEffect(() => {
-    const onChange = () => setFullscreen(Boolean(document.fullscreenElement));
+    const onChange = () => {
+      setFullscreen(Boolean(document.fullscreenElement));
+      requestAnimationFrame(() => { measureFit(); paintZoom(zoomRef.current); });
+    };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
@@ -49,43 +126,13 @@ export default function DiagramPanel({
   };
 
   const resetView = () => {
-    const box = boxRef.current;
-    setZoom(1);
-    if (box) box.scrollTo({ left: 0, top: 0 });
-  };
-
-  const zoomAt = (nextZoom, clientX, clientY) => {
-    const box = boxRef.current;
-    const canvas = canvasRef.current;
-    const value = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(nextZoom * 100) / 100));
-    if (!box || !canvas) {
-      setZoom(value);
-      return;
-    }
-    const rect = canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) {
-      setZoom(value);
-      return;
-    }
-    const fx = (clientX - rect.left) / rect.width;
-    const fy = (clientY - rect.top) / rect.height;
-    const boxRect = box.getBoundingClientRect();
-    const style = getComputedStyle(box);
-    const padLeft = parseFloat(style.paddingLeft) || 0;
-    const padTop = parseFloat(style.paddingTop) || 0;
-    const nextWidth = rect.width * (value / zoom);
-    const nextHeight = rect.height * (value / zoom);
-    setZoom(value);
-    requestAnimationFrame(() => {
-      box.scrollLeft = padLeft - (clientX - boxRect.left) + fx * nextWidth;
-      box.scrollTop = padTop - (clientY - boxRect.top) + fy * nextHeight;
-    });
+    refit();
   };
 
   const stepZoom = (delta) => {
     const box = boxRef.current;
     const boxRect = box?.getBoundingClientRect();
-    zoomAt(zoom + delta, boxRect ? boxRect.left + boxRect.width / 2 : 0, boxRect ? boxRect.top + boxRect.height / 2 : 0);
+    zoomAt(zoomRef.current + delta, boxRect ? boxRect.left + boxRect.width / 2 : 0, boxRect ? boxRect.top + boxRect.height / 2 : 0);
   };
 
   useEffect(() => {
@@ -93,11 +140,11 @@ export default function DiagramPanel({
     if (!box) return undefined;
     const onWheel = (event) => {
       event.preventDefault();
-      zoomAt(zoom + (event.deltaY < 0 ? 0.15 : -0.15), event.clientX, event.clientY);
+      scheduleZoom(zoomRef.current + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP), event.clientX, event.clientY);
     };
     box.addEventListener("wheel", onWheel, { passive: false });
     return () => box.removeEventListener("wheel", onWheel);
-  }, [zoom, subgroup?.mid]);
+  }, [subgroup?.mid]);
 
   useEffect(() => {
     if (!selectedCallout) return;
@@ -153,20 +200,20 @@ export default function DiagramPanel({
         onPointerUp={endDrag}
         onPointerLeave={endDrag}
         onPointerCancel={endDrag}
-        onDoubleClick={(event) => { if (event.target.closest(".epc-hotspot")) return; zoomAt(zoom * 1.5, event.clientX, event.clientY); }}
+        onDoubleClick={(event) => { if (event.target.closest(".epc-hotspot")) return; zoomAt(zoomRef.current * 1.5, event.clientX, event.clientY); }}
       >
-        {image ? <div className="epc-canvas" ref={canvasRef} style={fitWidth ? { width: Math.round(fitWidth * zoom) } : undefined}>
+        {image ? <div className="epc-canvas" ref={canvasRef}>
           <img
+            ref={imgRef}
             src={image}
             alt={subgroup.name}
             onLoad={(event) => {
               const img = event.currentTarget;
-              const box = boxRef.current;
-              if (!box || !img.naturalWidth || !img.naturalHeight) return;
-              setNatural({ w: img.naturalWidth, h: img.naturalHeight });
-              const ratio = img.naturalWidth / img.naturalHeight;
-              const width = Math.min(box.clientWidth - 48, (box.clientHeight - 48) * ratio);
-              setFitWidth(Math.max(80, Math.round(width)));
+              if (!img.naturalWidth || !img.naturalHeight) return;
+              naturalRef.current = { w: img.naturalWidth, h: img.naturalHeight };
+              setNatural(naturalRef.current);
+              measureFit();
+              paintZoom(1);
             }}
             onError={() => onToast("爆炸图加载失败")}
           />
@@ -191,7 +238,7 @@ export default function DiagramPanel({
         <button type="button" aria-label="缩小" onClick={() => stepZoom(-0.25)}><MagnifyingGlassMinus /></button>
         <button type="button" aria-label="适应屏幕" onClick={resetView}><ArrowsOut /></button>
         <button type="button" aria-label={fullscreen ? "退出全屏" : "全屏"} onClick={toggleFullscreen}>{fullscreen ? <ArrowsIn /> : <CornersOut />}</button>
-        <span className="epc-zoom-value">{Math.round(zoom * 100)}%</span>
+        <span className="epc-zoom-value" ref={labelRef}>100%</span>
       </div>
 
     </div> : <div className="epc-diagram-picker">

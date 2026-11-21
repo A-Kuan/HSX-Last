@@ -1432,3 +1432,41 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
 /* 跨图搜索：索引不完整 / 出错时的提示与重建入口 */
 .epc-search-note { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; padding: 8px 10px; border-radius: 8px; background: #fff8e6; color: #8a6d1f; font-size: 12px; }
 .epc-search-note button { border: 0; background: none; padding: 0; color: var(--brand); font-size: 12px; cursor: pointer; }
+
+/* 零件抽屉扩展：替换件 / 品牌件 / 渠道价格 */
+.epc-part-block { margin-top: 18px; }
+.epc-part-block h3 { font-size: 14px; margin: 0 0 10px; }
+.epc-replace-group { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: #fbfcfe; }
+.epc-article-list { display: flex; flex-direction: column; gap: 8px; }
+.epc-article-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.epc-article-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.epc-article-main strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+.epc-article-main span { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epc-article-row img { width: 40px; height: 40px; object-fit: contain; border-radius: 6px; background: #f7f9fc; }
+.epc-price-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.epc-price-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--line-soft); font-size: 13px; }
+.epc-price-row:first-child { border-top: 0; }
+.epc-price-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epc-price-row strong { font-variant-numeric: tabular-nums; }
+.epc-price-row em { font-style: normal; font-size: 12px; color: var(--muted); }
+
+/* 查询记录弹窗 */
+.epc-records-modal { width: 460px; max-height: min(640px, calc(100vh - 120px)); display: flex; flex-direction: column; background: var(--card); border-radius: 14px; overflow: hidden; box-shadow: 0 24px 60px rgba(23, 32, 51, .18); }
+.epc-records-modal > header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 10px; }
+.epc-records-list { overflow: auto; padding: 4px 10px 12px; }
+.epc-record-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 72px; gap: 10px; align-items: center; padding: 10px 8px; border-top: 1px solid #f1f4f8; font-size: 13px; }
+.epc-record-row:first-child { border-top: 0; }
+.epc-record-time { color: var(--text); font-variant-numeric: tabular-nums; }
+.epc-record-type { color: var(--muted); font-size: 12px; }
+.epc-record-row strong { text-align: right; font-weight: 500; color: var(--muted); }
+
+/* 保养件页 */
+.maintenance-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; border: 0; border-top: 1px solid var(--line-soft); background: none; text-align: left; font: inherit; cursor: pointer; }
+.maintenance-row:first-child { border-top: 0; }
+.maintenance-row:hover { background: #fafbfd; }
+.maintenance-freq { color: var(--muted); font-size: 12px; }
+.maintenance-parts { padding: 0 16px 14px; background: #fafbfd; }
+.maintenance-parts table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.maintenance-parts th, .maintenance-parts td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--line-soft); }
+.maintenance-parts th { color: var(--muted); font-weight: 500; }
+.maintenance-oe { font-variant-numeric: tabular-nums; }

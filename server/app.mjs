@@ -16,6 +16,7 @@ import { decodeVinViaEpc, EPC_CACHE_VERSION, loginEpc, logoutEpc, readEpcQuota, 
 import { loadCatalog, loadGroupCounts, loadParts, loadSubgroups } from "./epc-catalog.mjs";
 import { aliasesForOes, aliasKeyOf, deletePartAlias, listPartAliases, oeKeyOf, upsertPartAlias } from "./part-aliases.mjs";
 import { searchEpcWorld } from "./epc-search.mjs";
+import { loadEpcRecords, loadMaintenance, loadMaintenanceParts, loadPartExtras } from "./epc-extras.mjs";
 
 const json = (res, status, body) => {
   const data = JSON.stringify(body);
@@ -218,6 +219,42 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
       if (req.method === "DELETE" && partAliasMatch) {
         if (!deletePartAlias(db, partAliasMatch[1])) return json(res, 404, { error: "别名不存在" });
         return json(res, 200, { ok: true });
+      }
+      if (req.method === "GET" && pathname === "/api/epc/part-extras") {
+        const vin = epcVin();
+        const oe = String(requestUrl.searchParams.get("oe") || "").trim();
+        if (!validEpcVin(vin) || !oe) return json(res, 422, { error: "需要 VIN 与 OE 号" });
+        try {
+          return json(res, 200, await loadPartExtras(vin, oe));
+        } catch (error) {
+          return json(res, error.status || 502, { error: error.message });
+        }
+      }
+      if (req.method === "GET" && pathname === "/api/epc/records") {
+        try {
+          return json(res, 200, await loadEpcRecords(Number(requestUrl.searchParams.get("page") || 1), Number(requestUrl.searchParams.get("size") || 20)));
+        } catch (error) {
+          return json(res, error.status || 502, { error: error.message });
+        }
+      }
+      if (req.method === "GET" && pathname === "/api/epc/maintenance") {
+        const vin = epcVin();
+        if (!validEpcVin(vin)) return json(res, 422, { error: "VIN 应为 17 位字母数字，且不含 I、O、Q" });
+        try {
+          return json(res, 200, await loadMaintenance(vin));
+        } catch (error) {
+          return json(res, error.status || 502, { error: error.message });
+        }
+      }
+      if (req.method === "GET" && pathname === "/api/epc/maintenance/parts") {
+        const vin = epcVin();
+        const mcid = String(requestUrl.searchParams.get("mcid") || "");
+        if (!validEpcVin(vin) || !mcid) return json(res, 422, { error: "需要 VIN 与保养项目 mcid" });
+        try {
+          return json(res, 200, { items: await loadMaintenanceParts(vin, mcid) });
+        } catch (error) {
+          return json(res, error.status || 502, { error: error.message });
+        }
       }
       if (req.method === "GET" && pathname === "/api/epc/search") {
         const vin = epcVin();

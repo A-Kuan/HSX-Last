@@ -47,7 +47,6 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
       <button type="button" className="epc-icon-btn" aria-label="关闭" onClick={onClose}><X /></button>
     </header>
     <div className="epc-drawer-body">
-      <div className="epc-part-photo"><Package /></div>
       <h2 className="epc-drawer-oe">{part.oe}</h2>
       <p className="epc-drawer-name">{part.name}</p>
       <section className="epc-part-alias">

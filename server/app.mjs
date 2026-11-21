@@ -17,9 +17,8 @@ import { decodeVinViaEpc, EPC_CACHE_VERSION, loginEpc, logoutEpc, readEpcQuota, 
 import { loadCatalog, loadGroupCounts, loadParts, loadSubgroups } from "./epc-catalog.mjs";
 import { aliasesForOes, aliasKeyOf, deletePartAlias, listPartAliases, oeKeyOf, upsertPartAlias } from "./part-aliases.mjs";
 import { searchEpcWorld } from "./epc-search.mjs";
-import { loadEpcRecords, loadMaintenance, loadMaintenanceParts, loadPartExtras } from "./epc-extras.mjs";
-import { listBrandCatalog, listBrandParts, loadOeSkus } from "./brand-catalog.mjs";
-
+import { loadEpcRecords, loadPartExtras } from "./epc-extras.mjs";
+import { loadOeSkus } from "./brand-catalog.mjs";
 const json = (res, status, body) => {
   const data = JSON.stringify(body);
   res.writeHead(status, {
@@ -30,12 +29,10 @@ const json = (res, status, body) => {
   });
   res.end(data);
 };
-
 const noContent = (res) => {
   res.writeHead(204, { "cache-control": "no-store" });
   res.end();
 };
-
 async function readJson(req) {
   let raw = "";
   for await (const chunk of req) {
@@ -55,11 +52,8 @@ async function readJson(req) {
     throw error;
   }
 }
-
 const apiPath = (pathname) => pathname.replace(/^\/hsx-sku/, "");
-
 const IMAGE_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
-
 export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPLOAD_DIR || resolve("data/uploads") } = {}) {
   const storeImage = (skuId, dataUrl) => {
     const match = /^data:image\/(png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ""));
@@ -89,7 +83,6 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
     }
     return saved;
   };
-
   return createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
     const pathname = apiPath(requestUrl.pathname);
@@ -222,17 +215,6 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
         if (!deletePartAlias(db, partAliasMatch[1])) return json(res, 404, { error: "别名不存在" });
         return json(res, 200, { ok: true });
       }
-      if (req.method === "GET" && pathname === "/api/brand-catalog/brands") {
-        return json(res, 200, { items: listBrandCatalog(db) });
-      }
-      if (req.method === "GET" && pathname === "/api/brand-catalog/items") {
-        return json(res, 200, listBrandParts(db, {
-          brand: String(requestUrl.searchParams.get("brand") || ""),
-          q: String(requestUrl.searchParams.get("q") || ""),
-          page: Number(requestUrl.searchParams.get("page") || 1),
-          size: Number(requestUrl.searchParams.get("size") || 20),
-        }));
-      }
       if (req.method === "GET" && pathname === "/api/epc/part-extras") {
         const vin = epcVin();
         const oe = String(requestUrl.searchParams.get("oe") || "").trim();
@@ -247,25 +229,6 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
       if (req.method === "GET" && pathname === "/api/epc/records") {
         try {
           return json(res, 200, await loadEpcRecords(Number(requestUrl.searchParams.get("page") || 1), Number(requestUrl.searchParams.get("size") || 20)));
-        } catch (error) {
-          return json(res, error.status || 502, { error: error.message });
-        }
-      }
-      if (req.method === "GET" && pathname === "/api/epc/maintenance") {
-        const vin = epcVin();
-        if (!validEpcVin(vin)) return json(res, 422, { error: "VIN 应为 17 位字母数字，且不含 I、O、Q" });
-        try {
-          return json(res, 200, await loadMaintenance(vin));
-        } catch (error) {
-          return json(res, error.status || 502, { error: error.message });
-        }
-      }
-      if (req.method === "GET" && pathname === "/api/epc/maintenance/parts") {
-        const vin = epcVin();
-        const mcid = String(requestUrl.searchParams.get("mcid") || "");
-        if (!validEpcVin(vin) || !mcid) return json(res, 422, { error: "需要 VIN 与保养项目 mcid" });
-        try {
-          return json(res, 200, { items: await loadMaintenanceParts(vin, mcid) });
         } catch (error) {
           return json(res, error.status || 502, { error: error.message });
         }

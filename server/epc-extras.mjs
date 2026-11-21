@@ -135,42 +135,6 @@ export async function loadPartExtras(vin, oe) {
   };
 }
 
-/** 保养件：保养项目 + 每个项目下的零件（可选）。 */
-export async function loadMaintenance(vin) {
-  const { vehicle } = await vehicleQuery(vin);
-  // 保养接口要求 mcid 再编码一次（%2B → %252B）
-  const mcid = encodeURIComponent(vehicle.mcid);
-  const base = `vin=${encodeURIComponent(vin)}&mcid=${mcid}&brandCode=${encodeURIComponent(vehicle.brandCode)}`;
-  const list = await hs(`/maintenance/list?${base}`);
-  const items = (list.data || []).map((row) => ({
-    sequence: Number(row.sequence || 0),
-    name: clean(row.name),
-    freq: clean(row.freq),
-    manHours: clean(row.manHours),
-    mcid: String(row.mcid || ""),
-    parts: [],
-  }));
-  return { items };
-}
-
-/** 保养项目下的零件明细。 */
-export async function loadMaintenanceParts(vin, mcid) {
-  const { vehicle } = await vehicleQuery(vin);
-  const query = `vin=${encodeURIComponent(vin)}&mcid=${encodeURIComponent(mcid || "")}&brandCode=${encodeURIComponent(vehicle.brandCode)}`;
-  const payload = await hs(`/maintenance/part/list?${query}`);
-  const normalizeQuantity = (value) => {
-    const values = clean(value).split(/\s+/).filter(Boolean);
-    return values.length ? [...new Set(values)].join(" / ") : "";
-  };
-  return (payload.data || []).map((row) => ({
-    oe: String(row.pid || ""),
-    name: clean(row.label || row.name),
-    quantity: normalizeQuantity(row.quantity || row.num),
-    price: clean(row.price),
-    discontinued: /弃用/.test(clean(row.label || row.name)),
-  }));
-}
-
 async function epcGet(path) {
   const { token } = readEpcSession();
   if (!token) throw fail("极联登录已失效，需要换 token", 401);

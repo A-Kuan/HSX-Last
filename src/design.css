@@ -1454,37 +1454,6 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
 .epc-record-type { color: var(--muted); font-size: 12px; }
 .epc-record-row strong { text-align: right; font-weight: 500; color: var(--muted); }
 
-/* 保养件页 */
-.maintenance-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; border: 0; border-top: 1px solid var(--line-soft); background: none; text-align: left; font: inherit; cursor: pointer; }
-.maintenance-row:first-child { border-top: 0; }
-.maintenance-row:hover { background: #fafbfd; }
-.maintenance-freq { color: var(--muted); font-size: 12px; }
-.maintenance-parts { padding: 0 16px 14px; background: #fafbfd; }
-.maintenance-parts table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.maintenance-parts th, .maintenance-parts td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--line-soft); }
-.maintenance-parts th { color: var(--muted); font-weight: 500; }
-.maintenance-oe { font-variant-numeric: tabular-nums; }
-
-/* 品牌件目录 */
-.brand-catalog { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
-.brand-catalog-side { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-.brand-catalog-side .local-search { width: 100%; }
-.brand-catalog-list { overflow: auto; display: flex; flex-direction: column; gap: 2px; }
-.brand-catalog-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 40px; padding: 0 10px; border: 0; border-radius: 8px; background: none; font-size: 14px; color: var(--text); cursor: pointer; text-align: left; }
-.brand-catalog-item:hover { background: #f5f7fb; }
-.brand-catalog-item.is-active { background: #eef3ff; color: #1c3fae; font-weight: 600; }
-.brand-catalog-item em { font-style: normal; font-size: 12px; color: var(--muted); }
-.brand-catalog-main { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-.brand-part-table-wrap { overflow: auto; min-height: 0; }
-.brand-part-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.brand-part-table th, .brand-part-table td { text-align: left; padding: 11px 12px; border-top: 1px solid var(--line-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.brand-part-table th { color: var(--muted); font-weight: 500; border-top: 0; }
-.brand-part-table tbody tr:hover { background: #fafbfd; }
-.brand-part-no { font-weight: 600; font-variant-numeric: tabular-nums; }
-.brand-part-price { text-align: right; font-variant-numeric: tabular-nums; }
-.brand-part-vehicles { color: var(--muted); max-width: 260px; }
-.brand-part-empty { text-align: center !important; color: var(--muted); padding: 28px 0 !important; }
-
 /* 替换件时间轴 */
 .epc-replace-timeline { display: flex; flex-direction: column; }
 .epc-replace-step { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 0; }

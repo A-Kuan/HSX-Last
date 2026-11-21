@@ -66,8 +66,6 @@ export function NavBar({
     { key: "vehicle", label: "车型查询", view: "vehicle" },
     { key: "epc", label: "EPC 查询", view: "epc" },
     { key: "vehicles", label: "车型库", view: "vehicles" },
-    { key: "maintenance", label: "保养件", view: "maintenance" },
-    { key: "brandParts", label: "品牌件", view: "brandParts" },
     {
       key: "config",
       label: "配置中心",

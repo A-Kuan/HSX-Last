@@ -10,6 +10,7 @@ const clampZoom = (value) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(va
 export default function DiagramPanel({
   subgroup,
   diagrams,
+  categoryPicked = true,
   image,
   hotspots,
   partsCount,
@@ -246,7 +247,7 @@ export default function DiagramPanel({
         <span className="epc-pick-figure">{item.figure}</span>
         {item.thumbnail ? <img src={item.thumbnail} alt="" loading="lazy" onError={(event) => { event.currentTarget.style.visibility = "hidden"; }} /> : <span className="epc-pick-empty"><BookOpen /></span>}
         <span className="epc-pick-name">{item.name}</span>
-      </button>) : <p className="field-note">没有匹配项</p>}
+      </button>) : <p className="field-note">{categoryPicked ? "没有匹配项" : "选择左侧主组查看分解图"}</p>}
     </div>}
 
   </section>;

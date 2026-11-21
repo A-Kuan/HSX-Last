@@ -62,8 +62,6 @@ export default function EpcWorkbench({ initialVin = "" }) {
     return (data.subgroups || []).filter((item) => item.applicable !== false);
   };
 
-  const loadAllGroups = async (cat) => (await Promise.all(cat.groups.map((group) => loadGroup(group.num, cat.vehicle.vin).catch(() => [])))).flat();
-
   const applyVehicle = async (value) => {
     setError("");
     setLoading(true);
@@ -83,9 +81,8 @@ export default function EpcWorkbench({ initialVin = "" }) {
       setCatalog(data);
       setVin(data.vehicle.vin);
       api(`/epc/counts?vin=${encodeURIComponent(data.vehicle.vin)}`).then((result) => setCounts(result.counts || {})).catch(() => setCounts({}));
-      setGroupLoading(true);
-      const all = await loadAllGroups(data);
-      setSubgroups(all);
+      // 主组分解图按需加载：查询只拿目录和计数，点击主组时才拉该组图号
+      setSubgroups([]);
       setGroupLoading(false);
     } catch (loadError) {
       setError(loadError.message);
@@ -124,7 +121,7 @@ export default function EpcWorkbench({ initialVin = "" }) {
     setStatusFilter("all");
     setGroupLoading(true);
     try {
-      const list = num ? await loadGroup(num, catalog.vehicle.vin) : await loadAllGroups(catalog);
+      const list = num ? await loadGroup(num, catalog.vehicle.vin) : [];
       setSubgroups(list);
     } catch (loadError) {
       setError(loadError.message);
@@ -382,6 +379,7 @@ export default function EpcWorkbench({ initialVin = "" }) {
       <DiagramPanel
         subgroup={diagram}
         diagrams={subgroups}
+        categoryPicked={Boolean(groupNum)}
         image={image}
         hotspots={hotspots}
         partsCount={parts.length}

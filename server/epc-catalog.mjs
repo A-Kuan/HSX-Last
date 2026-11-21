@@ -92,6 +92,13 @@ export function parseSubgroups(rows = [], imgs = {}) {
   })).filter((row) => row.mid);
 }
 
+/** 极联的 quantity 是空格拼接的多值（同一件号对应多个适用配置，如 "1 1"）；去重后再展示。 */
+const normalizeQuantity = (value) => {
+  const values = cleanLabel(value).split(/\s+/).filter(Boolean);
+  if (!values.length) return "";
+  return [...new Set(values)].join(" / ");
+};
+
 export function parseParts(rows = []) {
   const parts = [];
   for (const row of rows) {
@@ -101,7 +108,7 @@ export function parseParts(rows = []) {
       oe,
       name: cleanLabel(row.label),
       position: cleanLabel(row.pnum),
-      quantity: cleanLabel(row.quantity),
+      quantity: normalizeQuantity(row.quantity),
       saCode: cleanLabel(row.saCode),
       remark: cleanLabel(row.remark),
       model: cleanLabel(row.model),

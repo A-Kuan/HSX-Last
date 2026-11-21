@@ -97,6 +97,17 @@ test("EPC catalog helpers normalize labels, figures and parts", () => {
   assert.equal(parts[1].alternate, "(2)");
 });
 
+test("part quantity collapses repeated variants", () => {
+  const parts = parseParts([
+    { pid: "95B919051", label: "燃油泵", pnum: "1", quantity: "1<br/><br/><br/>1", colorValue: "1" },
+    { pid: "PAC919673", label: "传感器", pnum: "2", quantity: "1 2", colorValue: "1" },
+    { pid: "8R0919051H", label: "燃油泵", pnum: "1", quantity: "1", colorValue: "1" },
+  ]);
+  assert.equal(parts[0].quantity, "1");
+  assert.equal(parts[1].quantity, "1 / 2");
+  assert.equal(parts[2].quantity, "1");
+});
+
 test("EPC catalog endpoints expose vehicle, groups, subgroups and parts", async () => {
   const previousFetch = globalThis.fetch;
   const previousToken = process.env.EPC_TOKEN;

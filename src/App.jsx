@@ -12,6 +12,7 @@ import { GroupAdmin } from "./components/GroupAdmin.jsx";
 import { RowMenu } from "./components/RowMenu.jsx";
 import { SearchSelect } from "./components/SearchSelect.jsx";
 import { NavBar } from "./components/NavBar.jsx";
+import EpcLoginModal from "./components/EpcLoginModal.jsx";
 
 const STATUS_LABELS = { draft: "草稿", enabled: "启用", disabled: "停用" };
 const SOURCE_LABELS = { oem: "原厂件", brand: "品牌件", used: "拆车件" };
@@ -387,14 +388,14 @@ function VinDialog({ onClose, onManual }) {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
 
   useEffect(() => {
     api("/vin/epc/status").then(setStatus).catch(() => setStatus({ configured: false, quota: null }));
   }, []);
 
-  const decode = async (event) => {
-    event.preventDefault();
-    const value = vin.trim().toUpperCase().replace(/\s+/g, "");
+  const decodeValue = async (raw) => {
+    const value = raw.trim().toUpperCase().replace(/\s+/g, "");
     if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(value)) {
       setEpc(null);
       setError("VIN 应为 17 位字母数字，且不含 I、O、Q");
@@ -413,6 +414,11 @@ function VinDialog({ onClose, onManual }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const decode = (event) => {
+    event.preventDefault();
+    decodeValue(vin);
   };
 
   const quota = status?.quota;
@@ -455,11 +461,15 @@ function VinDialog({ onClose, onManual }) {
           </div>
         </>
         : <footer>
-          <span className="vin-quota">{status === null ? "" : status.configured ? (quota ? `余 ${quota.remaining} 次` : "") : "未配置 token"}</span>
+          <span className="vin-quota">{status === null ? "" : status.configured ? (quota ? `余 ${quota.remaining} 次` : "") : "未登录"}</span>
+          {status && !status.configured
+            ? <button className="text-button vin-login" type="button" onClick={() => setLoginOpen(true)}>极联登录</button>
+            : null}
           <button className="secondary-button" type="button" onClick={onClose}>取消</button>
           <button className="primary-button" type="submit" disabled={!vin.trim() || loading}>{loading ? "识别中..." : "识别车型"}</button>
         </footer>}
     </form>
+    {loginOpen && <EpcLoginModal onClose={() => setLoginOpen(false)} onToast={(message) => setNotice(message)} onSaved={(data) => { setStatus(data); if (/^[A-HJ-NPR-Z0-9]{17}$/.test(vin.trim())) decodeValue(vin); }} />}
   </div></div>;
 }
 

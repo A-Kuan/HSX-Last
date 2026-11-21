@@ -62,3 +62,6 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - User explicitly requires high fidelity to selected reference exec-339c26b6-fc64-4912-9d40-ce65058fcf08.png. Do not improvise styles, spacing, field order, drawer proportions or card anatomy. OE improvements must retain that visual language.
 
 - User density adjustment: keep the selected dual-column layout, reduce drawer title to 24px, section titles 18px, fields/buttons 14px, controls 34px, footer 68px; reduce vertical whitespace so OE and notes appear sooner.
+
+- 跨图索引的坑（2026-11 实测）：极联目录接口有频率上限，3 并发抓 313 张图时大半返回「访问过于频繁，已超过上限值」，旧的建索引逻辑把异常吞掉还写了「已建好」，导致索引只有 23 张图、搜 OE 显示没有匹配项。现在：建索引串行 + 每张图间隔 2.5s + 429 指数退避（6s 起），failed 计数写进 epc_search_index；索引不完整时搜索弹层显示「索引未完整（N 张图未收录）+ 重建索引」；不再在搜索时自动建索引，只能通过 POST /api/epc/search/rebuild（后台跑、立即返回、前端轮询进度）手动重建。完整建一次约 20–40 分钟，期间不要并发跑别的抓取。
+- 搜索兜底（2026-11）：跨图搜索会先用当前已加载图号的 parts 做即时匹配（OE / 名称 / 别名，标记「当前图」），点结果直接高亮该图号；索引结果再补在后面。所以正在看某张图时搜它的 OE 一定命中，不受索引是否完整影响。

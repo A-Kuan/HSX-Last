@@ -1428,3 +1428,7 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
 .epc-hero-img { display: block; width: 450px; height: 217px; margin: 8px auto 6px; }
 .epc-landing-body { padding: 0 24px 36px; }
 .epc-landing-body h2 { margin: 0 0 10px; line-height: 38px; }
+
+/* 跨图搜索：索引不完整 / 出错时的提示与重建入口 */
+.epc-search-note { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; padding: 8px 10px; border-radius: 8px; background: #fff8e6; color: #8a6d1f; font-size: 12px; }
+.epc-search-note button { border: 0; background: none; padding: 0; color: var(--brand); font-size: 12px; cursor: pointer; }

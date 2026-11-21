@@ -15,7 +15,7 @@ import {
 import { decodeVinViaEpc, EPC_CACHE_VERSION, loginEpc, logoutEpc, readEpcQuota, readEpcStatus } from "./epc.mjs";
 import { loadCatalog, loadGroupCounts, loadParts, loadSubgroups } from "./epc-catalog.mjs";
 import { aliasesForOes, deletePartAlias, listPartAliases, oeKeyOf, upsertPartAlias } from "./part-aliases.mjs";
-import { ensureEpcIndex, epcIndexStatus, searchEpcParts } from "./epc-index.mjs";
+import { epcIndexStatus, searchEpcParts, startEpcIndexRebuild } from "./epc-index.mjs";
 
 const json = (res, status, body) => {
   const data = JSON.stringify(body);
@@ -219,13 +219,18 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
         if (!deletePartAlias(db, partAliasMatch[1])) return json(res, 404, { error: "别名不存在" });
         return json(res, 200, { ok: true });
       }
+      if (req.method === "POST" && pathname === "/api/epc/search/rebuild") {
+        const body = await readJson(req);
+        const vin = String(body.vin || requestUrl.searchParams.get("vin") || "").trim().toUpperCase();
+        if (!validEpcVin(vin)) return json(res, 422, { error: "VIN 应为 17 位字母数字，且不含 I、O、Q" });
+        return json(res, 200, { vin, ...startEpcIndexRebuild(db, vin) });
+      }
       if (req.method === "GET" && pathname === "/api/epc/search") {
         const vin = epcVin();
         if (!validEpcVin(vin)) return json(res, 422, { error: "VIN 应为 17 位字母数字，且不含 I、O、Q" });
         const q = String(requestUrl.searchParams.get("q") || "").trim();
-        ensureEpcIndex(db, vin);
         const status = epcIndexStatus(db, vin);
-        if (!status.ready) return json(res, 200, { status: "building", ...status, results: [], total: 0 });
+        if (!status.ready) return json(res, 200, { status: status.building ? "building" : "idle", ...status, results: [], total: 0 });
         return json(res, 200, { status: "ready", ...status, ...searchEpcParts(db, vin, q) });
       }
       if (req.method === "GET" && pathname === "/api/generations") {

@@ -251,6 +251,8 @@ function migrate(db) {
   ensureColumn(db, "skus", "image", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "vehicles", "vin", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "vehicles", "displacement", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "epc_search_index", "diagrams", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "epc_search_index", "failed", "INTEGER NOT NULL DEFAULT 0");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicles_vin ON vehicles(vin) WHERE vin <> ''");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_part_aliases_key ON part_aliases(oe_key, alias_key)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_part_aliases_alias ON part_aliases(alias_key)");

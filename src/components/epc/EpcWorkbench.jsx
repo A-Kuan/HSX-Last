@@ -47,6 +47,7 @@ export default function EpcWorkbench({ initialVin = "" }) {
   const [searchData, setSearchData] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchTimer = useRef(null);
+  const [searchTick, setSearchTick] = useState(0);
 
   useEffect(() => {
     api("/epc/status").then(setEpcStatus).catch(() => setEpcStatus({ configured: false, quota: null }));
@@ -205,6 +206,48 @@ export default function EpcWorkbench({ initialVin = "" }) {
     }
   };
 
+  const localSearchResults = useMemo(() => {
+    const q = searchQ.trim();
+    if (!q) return [];
+    const compact = q.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    return parts.filter((part) => {
+      if (!part.oe) return false;
+      if (compact && part.oe.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(compact)) return true;
+      if (part.name?.includes(q)) return true;
+      return (part.aliases || []).some((alias) => alias.alias.includes(q));
+    }).slice(0, 8).map((part) => ({
+      mid: diagram?.mid || "",
+      groupNum,
+      figure: diagram?.figure || "",
+      position: part.position,
+      oe: part.oe,
+      name: part.name,
+      aliases: (part.aliases || []).map((alias) => alias.alias),
+      local: true,
+    }));
+  }, [parts, searchQ, diagram, groupNum]);
+
+  const mergedSearchResults = useMemo(() => {
+    const remote = (searchData?.results || []).filter((item) => !localSearchResults.some((local) => local.mid === item.mid && local.position === item.position && local.oe === item.oe));
+    return [...localSearchResults, ...remote];
+  }, [localSearchResults, searchData]);
+
+  const pickSearchResult = (item) => {
+    if (item.local) {
+      setSearchOpen(false);
+      if (item.position) setSelectedCallout(String(item.position));
+      return;
+    }
+    openSearchResult(item);
+  };
+
+  const rebuildSearchIndex = () => {
+    if (!catalog) return;
+    api("/epc/search/rebuild", { method: "POST", body: JSON.stringify({ vin: catalog.vehicle.vin }) }).catch(() => {});
+    setSearchData({ status: "building", progress: 0, total: 0 });
+    setSearchTick((value) => value + 1);
+  };
+
   const openSearchResult = async (item) => {
     setSearchOpen(false);
     if (!catalog) return;
@@ -255,7 +298,7 @@ export default function EpcWorkbench({ initialVin = "" }) {
       cancelled = true;
       window.clearTimeout(searchTimer.current);
     };
-  }, [searchQ, catalog]);
+  }, [searchQ, catalog, searchTick]);
 
   useEffect(() => {
     if (!searchOpen) return undefined;
@@ -357,19 +400,28 @@ export default function EpcWorkbench({ initialVin = "" }) {
           onChange={(event) => { setSearchQ(event.target.value); setSearchOpen(true); }}
           onFocus={() => { if (searchData) setSearchOpen(true); }}
         />
-        {searchOpen && searchData ? <div className="epc-search-pop">
-          {searchData.status === "building" ? <p className="field-note">正在建立检索索引 {searchData.progress}/{searchData.total || "—"}</p>
-            : searchData.status === "error" ? <p className="field-note">{searchData.error}</p>
-            : searchData.results?.length ? searchData.results.map((item) => <button
-              key={`${item.mid}-${item.position}-${item.oe}`}
+        {searchOpen && searchQ.trim() ? <div className="epc-search-pop">
+          {mergedSearchResults.length ? <>
+            {searchData?.failed ? <p className="epc-search-note">索引未完整（{searchData.failed} 张图未收录）<button type="button" onClick={rebuildSearchIndex}>重建索引</button></p> : null}
+            {mergedSearchResults.map((item) => <button
+              key={`${item.local ? "local" : "remote"}-${item.mid}-${item.position}-${item.oe}`}
               type="button"
               className="epc-search-row"
-              onClick={() => openSearchResult(item)}
+              onClick={() => pickSearchResult(item)}
             >
-              <span className="epc-search-figure">{item.figure}</span>
+              <span className="epc-search-figure">{item.figure || "当前图"}</span>
               <span className="epc-search-main"><strong>{item.oe || "参见"}</strong><em>{item.name}</em></span>
               {item.aliases?.length ? <span className="epc-search-alias">{item.aliases[0]}</span> : null}
-            </button>) : <p className="field-note">没有匹配项</p>}
+            </button>)}
+          </> : searchData?.status === "building" ? (searchData.error
+            ? <p className="epc-search-note">{searchData.error}<button type="button" onClick={rebuildSearchIndex}>重建索引</button></p>
+            : <p className="field-note">正在建立检索索引 {searchData.progress}/{searchData.total || "—"}</p>)
+            : searchData?.status === "error" ? <p className="epc-search-note">{searchData.error}<button type="button" onClick={rebuildSearchIndex}>重试</button></p>
+            : searchData?.status === "idle" ? <p className="epc-search-note">跨图索引未建立<button type="button" onClick={rebuildSearchIndex}>建立索引</button></p>
+            : searchData ? <>
+              {searchData.failed ? <p className="epc-search-note">索引未完整（{searchData.failed} 张图未收录）<button type="button" onClick={rebuildSearchIndex}>重建索引</button></p> : null}
+              <p className="field-note">没有匹配项</p>
+            </> : null}
         </div> : null}
       </div>
     </div> : null}

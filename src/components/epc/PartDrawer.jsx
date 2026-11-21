@@ -46,7 +46,6 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
 
   const replaceChain = [...(extras?.replace?.chain || [])].reverse();
   const replaceAlternatives = extras?.replace?.alternatives || [];
-  const articles = extras?.articles || [];
   const products = extras?.products || [];
 
   const badgeOf = (node, index) => {
@@ -131,20 +130,6 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
           </section> : null}
         </div>
 
-        <div className="epc-drawer-sep" aria-hidden="true" />
-
-        <div className="epc-drawer-col">
-          <section className="epc-part-section">
-            <h3>品牌件</h3>
-            {!extras ? <p className="field-note">加载中…</p> : articles.length ? <div className="epc-brand-table">
-              <div className="epc-brand-table-head"><span>零件号</span><span>品牌</span></div>
-              {articles.map((article) => <div className="epc-brand-table-row" key={`${article.supplier}-${article.articleNumber}`}>
-                <strong>{article.articleNumber}</strong>
-                <span>{[article.supplierCn ? `${article.supplierCn}` : article.supplier, article.label].filter(Boolean).join(" · ")}</span>
-              </div>)}
-            </div> : <p className="field-note">暂无品牌件</p>}
-          </section>
-        </div>
       </div>
     </div>
 

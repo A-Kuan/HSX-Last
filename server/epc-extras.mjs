@@ -119,36 +119,17 @@ const normalizeReplace = (rows = []) => {
   return { chain, alternatives };
 };
 
-/** 品牌件反查：OE → 可替代的品牌件（供应商、件号、名称、图片）。 */
-const normalizeArticles = (rows = []) => rows.map((row) => {
-  const host = String(row.images?.[0] ? "" : "");
-  const image = row.images?.[0] ? `https://phyimgs.007vin.com/${row.images[0]}` : "";
-  return {
-    supplier: clean(row.supplier),
-    supplierCn: clean(row.supplierDetail?.nameCn),
-    articleNumber: String(row.articleNumber || ""),
-    label: clean(row.label),
-    oe: String(row.oeNumber || ""),
-    status: clean(row.status),
-    image,
-    host,
-  };
-});
-
 export async function loadPartExtras(vin, oe) {
   const { base } = await vehicleQuery(vin);
   const query = `${base}&oe=${encodeURIComponent(oe)}`;
-  const [replace, articles] = await Promise.allSettled([
+  const [replace] = await Promise.allSettled([
     hs(`/parts/replace/${encodeURIComponent(oe)}?${base}`),
-    hs(`/parts/article/${encodeURIComponent(oe)}?${base}`),
   ]);
   return {
     oe,
     replace: replace.status === "fulfilled" ? normalizeReplace(replace.value.data || []) : [],
-    articles: articles.status === "fulfilled" ? normalizeArticles(articles.value.data || []) : [],
     errors: {
       replace: replace.status === "rejected" ? replace.reason.message : "",
-      articles: articles.status === "rejected" ? articles.reason.message : "",
     },
     query,
   };

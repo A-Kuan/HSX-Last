@@ -1303,3 +1303,65 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
 /* 图号列可点：在爆炸图中定位；OE 列可点：复制 OE 号 */
 .epc-pos-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--text); font-variant-numeric: tabular-nums; cursor: pointer; }
 .epc-pos-btn:hover { color: var(--brand); }
+
+/* ---------- 顶部导航（参考稿：扁平文字 + 下划线选中） ---------- */
+.nv-header { padding: 0 24px; }
+.nv-header .nv-shell { height: 100%; margin-left: 0; }
+.nv-nav { height: 100%; gap: 2px; }
+.nv-trigger { height: 100%; padding: 0 14px; border-radius: 0; background: transparent; color: #344054; font-size: 15px; font-weight: 500; position: relative; }
+.nv-trigger:hover { background: transparent; color: var(--brand); }
+.nv-trigger.is-current,
+.nv-trigger[aria-expanded="true"] { background: transparent; color: var(--brand); font-weight: 600; }
+.nv-trigger.is-current::after,
+.nv-trigger[aria-expanded="true"]::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: 0; height: 2px; border-radius: 2px 2px 0 0; background: var(--brand); }
+.nv-trigger .nv-caret { width: 11px; height: 11px; }
+.global-search { width: min(430px, 34vw); height: 40px; border-radius: 8px; background: #f3f4f6; }
+.global-search svg { width: 16px; height: 16px; }
+.global-search input { font-size: 14px; }
+.header-actions .icon-button { width: 34px; height: 34px; }
+
+/* ---------- EPC 空态落地页（参考稿） ---------- */
+.epc-landing { flex: 1; display: flex; align-items: flex-start; justify-content: center; padding: 64px 24px 40px; }
+.epc-landing-card { width: min(880px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 12px 32px rgba(23, 32, 51, .06); overflow: hidden; }
+.epc-landing-search { display: flex; align-items: center; gap: 14px; height: 84px; padding: 0 28px; border-bottom: 1px solid var(--line); }
+.epc-landing-search > svg { width: 20px; height: 20px; color: var(--muted); flex: none; }
+.epc-landing-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 17px; color: var(--ink); }
+.epc-landing-search input::placeholder { color: #98a2b3; }
+.epc-landing-count { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.epc-landing-search kbd { font: inherit; font-size: 12px; color: #667085; border: 1px solid var(--line-strong); border-radius: 6px; padding: 2px 7px; background: #fff; }
+.epc-landing-submit { height: 34px; padding: 0 16px; border: 0; border-radius: 8px; background: var(--brand); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+.epc-landing-submit:disabled { background: #c7d4f8; cursor: default; }
+.epc-landing-body { padding: 42px 24px 38px; text-align: center; }
+.epc-hero { position: relative; width: 620px; max-width: 100%; height: 250px; margin: 0 auto 6px; }
+.epc-hero-car { position: absolute; left: 50%; top: 50%; width: 330px; height: 165px; transform: translate(-50%, -50%); }
+.epc-hero-links { position: absolute; inset: 0; width: 100%; height: 100%; }
+.epc-hero-links path { fill: none; stroke: #cfd8e5; stroke-width: 1.5; stroke-dasharray: 4 5; }
+.epc-hero-node { position: absolute; width: 54px; height: 54px; border-radius: 14px; background: #fff; border: 1px solid #e7ebf2; box-shadow: 0 4px 12px rgba(23, 32, 51, .05); display: grid; place-items: center; color: #8b96a8; }
+.epc-hero-node svg { width: 26px; height: 26px; }
+.epc-hero-node.is-oil { left: 34px; top: 8px; }
+.epc-hero-node.is-plug { right: 34px; top: 8px; }
+.epc-hero-node.is-drop { left: 34px; bottom: 8px; }
+.epc-hero-node.is-disc { right: 34px; bottom: 8px; }
+.epc-landing-body h2 { margin: 6px 0 10px; font-size: 24px; font-weight: 600; color: var(--ink); }
+.epc-landing-body p { margin: 0; font-size: 15px; color: var(--muted); }
+.epc-landing-body .epc-landing-error { margin-top: 14px; color: #b42318; font-size: 14px; }
+.epc-landing-foot { height: 56px; display: flex; align-items: center; justify-content: flex-end; padding: 0 28px; border-top: 1px solid var(--line); background: #fbfcfd; }
+.epc-landing-account { border: 0; background: none; padding: 4px 6px; border-radius: 6px; font-size: 14px; color: var(--muted); cursor: pointer; }
+.epc-landing-account:hover { color: var(--brand); }
+
+/* 落地页细节：垂直居中、图标底色更淡、车更大 */
+.epc-landing { align-items: center; padding: 24px; }
+.epc-landing-card { max-height: calc(100vh - 140px); }
+.epc-hero { height: 268px; }
+.epc-hero-car { width: 360px; height: 180px; }
+.epc-hero-node { background: #f7f9fc; border-color: transparent; box-shadow: none; }
+.epc-landing-body { padding: 38px 24px 34px; }
+
+/* 落地页最终微调 */
+.epc-landing-search input { font-size: 18px; }
+.epc-landing-body h2 { font-size: 26px; font-weight: 700; }
+.epc-landing-body p { font-size: 16px; }
+.epc-hero-node { width: 58px; height: 58px; border-radius: 16px; }
+.epc-hero-node svg { width: 28px; height: 28px; }
+.nv-trigger.is-current::after,
+.nv-trigger[aria-expanded="true"]::after { height: 3px; }

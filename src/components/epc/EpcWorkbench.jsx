@@ -7,6 +7,7 @@ import PartsPanel from "./PartsPanel.jsx";
 import PartDrawer from "./PartDrawer.jsx";
 import SelectedBar from "./SelectedBar.jsx";
 import VehicleConfigModal from "./VehicleConfigModal.jsx";
+import EpcLanding from "./EpcLanding.jsx";
 import EpcLoginModal from "../EpcLoginModal.jsx";
 
 const emptyPart = { parts: [], hotspots: [], image: "" };
@@ -315,8 +316,20 @@ export default function EpcWorkbench({ initialVin = "" }) {
     if (catalog) setVin(catalog.vehicle.vin);
   };
 
+  const accountText = epcStatus?.configured ? `极联 · 余 ${epcStatus.quota?.remaining ?? "—"} 次` : "极联登录";
+
   return <main className="workspace epc-workspace">
-    <form className="epc-vin-row" onSubmit={submitVin}>
+    {!catalog ? <EpcLanding
+      vin={vin}
+      onVin={setVin}
+      onSubmit={submitVin}
+      loading={loading}
+      error={error}
+      accountText={accountText}
+      onLogin={() => setLoginOpen(true)}
+    /> : null}
+    {catalog ? <>
+      <form className="epc-vin-row" onSubmit={submitVin}>
       <label className="local-search epc-vin">
         <CarProfile />
         <input aria-label="VIN" placeholder="输入 17 位 VIN" maxLength={17} value={vin} onChange={(event) => { setVin(event.target.value.toUpperCase().replace(/\s+/g, "")); setError(""); }} />
@@ -390,11 +403,10 @@ export default function EpcWorkbench({ initialVin = "" }) {
         onOpenReference={openReference}
         onCopyOe={(oe) => copyText(oe, "已复制 OE 号")}
       /> : null}
-    </div> : <div className="epc-empty">
-      <p>输入 VIN 查询后选择零件分组</p>
-    </div>}
+    </div> : null}
+    </> : null}
 
-    <SelectedBar
+    {catalog ? <SelectedBar
       items={selected}
       collapsed={!selectedOpen}
       onToggle={() => setSelectedOpen((current) => !current)}
@@ -415,7 +427,7 @@ export default function EpcWorkbench({ initialVin = "" }) {
           setInquiry(false);
         }
       }}
-    />
+    /> : null}
 
     {activePart ? <div className="overlay drawer-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setActivePart(null); }}>
       <PartDrawer

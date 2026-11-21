@@ -41,7 +41,7 @@ export function NavBar({
   const modules = [
     {
       key: "sku",
-      label: "SKU 商品库",
+      label: "SKU商品库",
       groups: [
         {
           title: "状态",

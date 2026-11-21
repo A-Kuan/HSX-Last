@@ -47,6 +47,9 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - 另有一个只读工具 `npm run oe:epc -- <VIN> [--csv 文件]`（`scripts/epc-oe-list.mjs`）：`/vins/cars/vin → group → parts` 拉出这台车的全部 OE（`pid`=OE 号，另带名称、主组、图号、数量、选装码、弃用标记），CSV 带 BOM 便于 Excel 打开。VIN 解析优先走本机 API 缓存（`/api/vin/epc`），本机没起服务才直接调极联（会扣 1 次）；目录类接口（group/parts）实测不扣次数。实测 Macan 2017 有 10 主组 / 352 个不重复 OE（42 个弃用件），Cayenne 2012 有 408 个（92 个弃用件），一台车 12 个请求。这份清单还没落库、也没进界面。
 - SKU 列表行尾的「…」是操作菜单（`src/components/RowMenu.jsx`，portal 到 body、右对齐触发按钮、下方空间不足时向上翻），菜单为「编辑资料 / 停用·启用 / 删除」；停用与启用直接生效并写一条操作记录（无原因时摘要只写「停用」或「启用」）。删除走确认弹窗，列出 OE 号、车型适配、替代关系一并删除与不可撤销，任意状态的 SKU 都可删除；`DELETE /api/skus/:id` 同时删除商品图文件，OE/适配/替代关系由外键级联清理，组级 OE 保持不变。SKU 抽屉底部的删除入口共用同一个确认弹窗，取消时抽屉保持打开。操作失败时 Toast 用 `is-error` 显示「操作失败」。
 
+- 部署（2026-11）：API 部署在 `http://121.41.24.42/`（https）——systemd `hsx-sku.service`，release 在 `/opt/hsx-sku-library/releases/<日期>-<hash>` 并通过 `current` 软链切换，数据库 `/var/lib/hsx-sku-library/sku-library.sqlite`，极联 token 在 `/var/lib/hsx-sku-library/epc-token.json`（systemd 的 `EPC_TOKEN_FILE`），nginx 只反代 `/hsx-sku/api/` → `127.0.0.1:4188/api/`。**服务器不部署前端页面**（`/hsx-sku/` 返回 404），只发布 `server/`。
+- 本地开发连远端数据：`npm run dev:remote`（`scripts/dev-remote.mjs`，默认 `SKU_API_PROXY=https://121.41.24.42`），Vite 把 `/hsx-sku/api` 代理到该地址（`secure:false`）；不设则仍连本机 4188。界面始终从本机 5173 加载，服务器只提供 API。
+
 ## Current product scope
 
 - Build for one desktop user; do not add mobile layouts or role/permission management.

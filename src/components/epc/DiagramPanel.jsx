@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowsClockwise, ArrowsIn, ArrowsOut, BookOpen, CornersOut, Cube, MagnifyingGlassMinus, MagnifyingGlassPlus } from "@phosphor-icons/react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowsIn, ArrowsOut, BookOpen, CornersOut, MagnifyingGlassMinus, MagnifyingGlassPlus } from "@phosphor-icons/react";
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 4;
@@ -23,28 +23,7 @@ export default function DiagramPanel({
   const [zoom, setZoom] = useState(1);
   const [natural, setNatural] = useState({ w: 0, h: 0 });
   const [fitWidth, setFitWidth] = useState(0);
-  const [viewport, setViewport] = useState({ left: 0, top: 0, width: 0, height: 0 });
-  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [fullscreen, setFullscreen] = useState(false);
-
-  const measure = useCallback(() => {
-    const box = boxRef.current;
-    if (!box) return;
-    setViewport({ left: box.scrollLeft, top: box.scrollTop, width: box.clientWidth, height: box.clientHeight });
-    setCanvasSize({ width: box.scrollWidth, height: box.scrollHeight });
-  }, []);
-
-  useEffect(() => {
-    const box = boxRef.current;
-    if (!box) return undefined;
-    box.addEventListener("scroll", measure, { passive: true });
-    const observer = new ResizeObserver(measure);
-    observer.observe(box);
-    return () => {
-      box.removeEventListener("scroll", measure);
-      observer.disconnect();
-    };
-  }, [measure, subgroup?.mid]);
 
   useEffect(() => {
     setZoom(1);
@@ -73,7 +52,6 @@ export default function DiagramPanel({
     const box = boxRef.current;
     setZoom(1);
     if (box) box.scrollTo({ left: 0, top: 0 });
-    requestAnimationFrame(measure);
   };
 
   const zoomAt = (nextZoom, clientX, clientY) => {
@@ -101,7 +79,6 @@ export default function DiagramPanel({
     requestAnimationFrame(() => {
       box.scrollLeft = padLeft - (clientX - boxRect.left) + fx * nextWidth;
       box.scrollTop = padTop - (clientY - boxRect.top) + fy * nextHeight;
-      measure();
     });
   };
 
@@ -163,30 +140,10 @@ export default function DiagramPanel({
   const endDrag = () => {
     dragRef.current = null;
     boxRef.current?.classList.remove("is-dragging");
-    measure();
   };
 
-  const jumpTo = (event) => {
-    const box = boxRef.current;
-    if (!box) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const fx = (event.clientX - rect.left) / rect.width;
-    const fy = (event.clientY - rect.top) / rect.height;
-    box.scrollTo({ left: fx * box.scrollWidth - box.clientWidth / 2, top: fy * box.scrollHeight - box.clientHeight / 2, behavior: "smooth" });
-  };
-
-  const canMinimap = Boolean(image);
-  const activeSpot = hotspots.find((spot) => spot.key === selectedCallout) || null;
 
   return <section className={`epc-card epc-diagram-card${fullscreen ? " is-fullscreen" : ""}`} ref={cardRef}>
-    <header className="epc-card-head">
-      <div className="epc-card-title"><Cube /><span>爆炸图</span></div>
-      <div className="epc-head-actions">
-        <button type="button" className="epc-icon-btn" aria-label={fullscreen ? "退出全屏" : "全屏"} onClick={toggleFullscreen}>{fullscreen ? <ArrowsIn /> : <CornersOut />}</button>
-        <button type="button" className="epc-icon-btn" aria-label="适应屏幕" onClick={resetView}><ArrowsOut /></button>
-      </div>
-    </header>
-
     {subgroup ? <div className="epc-diagram-wrap">
       <div
         className="epc-diagram"
@@ -210,7 +167,6 @@ export default function DiagramPanel({
               const ratio = img.naturalWidth / img.naturalHeight;
               const width = Math.min(box.clientWidth - 48, (box.clientHeight - 48) * ratio);
               setFitWidth(Math.max(80, Math.round(width)));
-              requestAnimationFrame(measure);
             }}
             onError={() => onToast("爆炸图加载失败")}
           />
@@ -230,34 +186,14 @@ export default function DiagramPanel({
         </div> : <p className="field-note">这张图没有可用的爆炸图</p>}
       </div>
 
-      {activeSpot && natural.w ? <span
-        className={`epc-callout-tip${activeSpot.right / natural.w > 0.55 ? " is-left" : ""}`}
-        style={{
-          left: `${((activeSpot.right / natural.w) * 100)}%`,
-          top: `${(((activeSpot.y + activeSpot.bottom) / 2 / natural.h) * 100)}%`,
-        }}
-      >图号：{activeSpot.key}</span> : null}
-
       <div className="epc-zoom-stack">
         <button type="button" aria-label="放大" onClick={() => stepZoom(0.25)}><MagnifyingGlassPlus /></button>
         <button type="button" aria-label="缩小" onClick={() => stepZoom(-0.25)}><MagnifyingGlassMinus /></button>
         <button type="button" aria-label="适应屏幕" onClick={resetView}><ArrowsOut /></button>
-        <button type="button" aria-label="重置视图" onClick={resetView}><ArrowsClockwise /></button>
+        <button type="button" aria-label={fullscreen ? "退出全屏" : "全屏"} onClick={toggleFullscreen}>{fullscreen ? <ArrowsIn /> : <CornersOut />}</button>
         <span className="epc-zoom-value">{Math.round(zoom * 100)}%</span>
       </div>
 
-      {canMinimap ? <div className="epc-minimap" onClick={jumpTo} role="presentation">
-        <img src={image} alt="" />
-        <span
-          className="epc-minimap-view"
-          style={{
-            left: `${(viewport.left / Math.max(canvasSize.width, 1)) * 100}%`,
-            top: `${(viewport.top / Math.max(canvasSize.height, 1)) * 100}%`,
-            width: `${(viewport.width / Math.max(canvasSize.width, 1)) * 100}%`,
-            height: `${(viewport.height / Math.max(canvasSize.height, 1)) * 100}%`,
-          }}
-        />
-      </div> : null}
     </div> : <div className="epc-diagram-picker">
       {diagrams.length ? diagrams.map((item) => <button key={item.mid} type="button" className="epc-pick" onClick={() => onPickDiagram(item)}>
         <span className="epc-pick-figure">{item.figure}</span>

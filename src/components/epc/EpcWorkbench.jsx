@@ -6,6 +6,7 @@ import DiagramPanel from "./DiagramPanel.jsx";
 import PartsPanel from "./PartsPanel.jsx";
 import PartDrawer from "./PartDrawer.jsx";
 import SelectedBar from "./SelectedBar.jsx";
+import EpcLoginModal from "../EpcLoginModal.jsx";
 
 const emptyPart = { parts: [], hotspots: [], image: "" };
 
@@ -28,7 +29,6 @@ export default function EpcWorkbench({ initialVin = "" }) {
   const [hotspots, setHotspots] = useState([]);
   const [image, setImage] = useState("");
   const [partsLoading, setPartsLoading] = useState(false);
-  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedCallout, setSelectedCallout] = useState("");
   const [activePart, setActivePart] = useState(null);
@@ -37,6 +37,13 @@ export default function EpcWorkbench({ initialVin = "" }) {
   const [pendingVin, setPendingVin] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [inquiry, setInquiry] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [epcStatus, setEpcStatus] = useState(null);
+  const [selectedOpen, setSelectedOpen] = useState(false);
+
+  useEffect(() => {
+    api("/epc/status").then(setEpcStatus).catch(() => setEpcStatus({ configured: false, quota: null }));
+  }, []);
 
   const notify = (message) => {
     setToast(message);
@@ -62,7 +69,6 @@ export default function EpcWorkbench({ initialVin = "" }) {
     setHotspots([]);
     setImage("");
     setSelectedCallout("");
-    setSearch("");
     setStatusFilter("all");
     setActivePart(null);
     try {
@@ -108,7 +114,6 @@ export default function EpcWorkbench({ initialVin = "" }) {
     setHotspots([]);
     setImage("");
     setSelectedCallout("");
-    setSearch("");
     setStatusFilter("all");
     setGroupLoading(true);
     try {
@@ -128,7 +133,6 @@ export default function EpcWorkbench({ initialVin = "" }) {
     setParts([]);
     setHotspots([]);
     setImage("");
-    setSearch("");
     setStatusFilter("all");
     setPartsLoading(true);
     try {
@@ -158,15 +162,6 @@ export default function EpcWorkbench({ initialVin = "" }) {
     setSelected((list) => (list.some((item) => item.key === part.key)
       ? list.filter((item) => item.key !== part.key)
       : [...list, { key: part.key, oe: part.oe, name: part.name, position: part.position, qty: 1, price: part.price || "" }]));
-  };
-
-  const toggleMany = (rows, checked) => {
-    setSelected((list) => {
-      const keys = new Set(rows.map((row) => row.key));
-      if (!checked) return list.filter((item) => !keys.has(item.key));
-      const existing = new Set(list.map((item) => item.key));
-      return [...list, ...rows.filter((row) => !existing.has(row.key)).map((row) => ({ key: row.key, oe: row.oe, name: row.name, position: row.position, qty: 1, price: row.price || "" }))];
-    });
   };
 
   const changeQty = (key, qty) => {
@@ -202,9 +197,6 @@ export default function EpcWorkbench({ initialVin = "" }) {
   };
 
   return <main className="workspace epc-workspace">
-    <div className="epc-page-head">
-      <h1>EPC 查询<span className="epc-subtitle">{catalog ? `${catalog.vehicle.brand} / ${catalog.vehicle.series} 零部件信息` : "输入 VIN 查询车型零部件"}</span></h1>
-    </div>
     <form className="epc-vin-row" onSubmit={submitVin}>
       <label className="local-search epc-vin">
         <CarProfile />
@@ -216,6 +208,9 @@ export default function EpcWorkbench({ initialVin = "" }) {
         <span className="epc-vehicle-icon"><CarProfile /></span>
         <div><strong>{vehicleLabel}</strong><span>{catalog.vehicle.vin}</span></div>
       </div> : null}
+      <button type="button" className="secondary-button epc-account" onClick={() => setLoginOpen(true)}>
+        {epcStatus?.configured ? `极联 · 余 ${epcStatus.quota?.remaining ?? "—"} 次` : "极联登录"}
+      </button>
     </form>
     {error ? <div className="form-error"><X weight="fill" />{error}</div> : null}
 
@@ -241,8 +236,6 @@ export default function EpcWorkbench({ initialVin = "" }) {
       <PartsPanel
         parts={parts}
         loading={partsLoading || groupLoading}
-        search={search}
-        onSearch={setSearch}
         statusFilter={statusFilter}
         onStatusFilter={setStatusFilter}
         selectedCallout={selectedCallout}
@@ -250,11 +243,6 @@ export default function EpcWorkbench({ initialVin = "" }) {
         selectedIds={selected.map((item) => item.key)}
         onToggle={togglePart}
         onOpenPart={setActivePart}
-        onCopyOe={(oe) => copyText(oe, "已复制 OE 号")}
-        onCopySelected={() => copyText((selected.length ? selected.map((item) => item.oe) : parts.map((part) => part.oe)).join("\n"), "已复制 OE")}
-        onCopyAll={() => copyText(parts.map((part) => part.oe).join("\n"), "已复制全部 OE")}
-        onAddSelected={(rows) => { toggleMany(rows, true); notify("已加入选件清单"); }}
-        onSelectAllVisible={toggleMany}
       />
     </div> : <div className="epc-empty">
       <p>输入 VIN 查询后选择零件分组</p>
@@ -262,6 +250,8 @@ export default function EpcWorkbench({ initialVin = "" }) {
 
     <SelectedBar
       items={selected}
+      collapsed={!selectedOpen}
+      onToggle={() => setSelectedOpen((current) => !current)}
       submitting={inquiry}
       onQty={changeQty}
       onRemove={removeSelected}
@@ -288,7 +278,6 @@ export default function EpcWorkbench({ initialVin = "" }) {
         inList={selected.some((item) => item.key === activePart.key)}
         onClose={() => setActivePart(null)}
         onAdd={(part) => { if (!selected.some((item) => item.key === part.key)) togglePart(part); notify("已加入选件清单"); }}
-        onCopyOe={(oe) => copyText(oe, "已复制 OE 号")}
       />
     </div> : null}
 
@@ -316,5 +305,6 @@ export default function EpcWorkbench({ initialVin = "" }) {
     </div> : null}
 
     {toast ? <div className="epc-toast">{toast}</div> : null}
+    {loginOpen && <EpcLoginModal onClose={() => setLoginOpen(false)} onToast={notify} onSaved={(data) => setEpcStatus(data)} />}
   </main>;
 }

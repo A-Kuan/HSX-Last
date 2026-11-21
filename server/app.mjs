@@ -12,7 +12,7 @@ import {
   updateVehicleGeneration, resolveVehicleGeneration,
   writeEpcVinCache,
 } from "./db.mjs";
-import { decodeVinViaEpc, EPC_CACHE_VERSION, readEpcQuota, readEpcStatus } from "./epc.mjs";
+import { decodeVinViaEpc, EPC_CACHE_VERSION, loginEpc, logoutEpc, readEpcQuota, readEpcStatus } from "./epc.mjs";
 import { loadCatalog, loadGroupCounts, loadParts, loadSubgroups } from "./epc-catalog.mjs";
 
 const json = (res, status, body) => {
@@ -142,6 +142,17 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
         return noContent(res);
       }
       if (req.method === "GET" && pathname === "/api/vin/epc/status") {
+        return json(res, 200, await readEpcStatus());
+      }
+      if (req.method === "GET" && pathname === "/api/epc/status") {
+        return json(res, 200, await readEpcStatus());
+      }
+      if (req.method === "POST" && pathname === "/api/epc/login") {
+        const body = await readJson(req);
+        return json(res, 200, await loginEpc(body.account, body.password));
+      }
+      if (req.method === "POST" && pathname === "/api/epc/logout") {
+        logoutEpc();
         return json(res, 200, await readEpcStatus());
       }
       if (req.method === "GET" && pathname === "/api/vin/epc") {

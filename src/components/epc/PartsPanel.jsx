@@ -1,21 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { CaretDown, CheckSquare, Copy, ListBullets, MagnifyingGlass, PlusSquare, Square, Trash } from "@phosphor-icons/react";
+import { useEffect, useMemo, useRef } from "react";
+import { CheckSquare, Square } from "@phosphor-icons/react";
 
 const statusOf = (part) => (part.discontinued || part.applicable === false ? "discontinued" : "normal");
 const STATUS_LABEL = { normal: "正常", discontinued: "停用" };
 
-const matchesSearch = (part, keyword) => {
-  const value = keyword.trim().toLowerCase();
-  if (!value) return true;
-  return [part.oe, part.name, part.position, part.model, part.remark, part.condition, part.saCode]
-    .some((field) => String(field || "").toLowerCase().includes(value));
-};
-
 export default function PartsPanel({
   parts,
   loading,
-  search,
-  onSearch,
   statusFilter,
   onStatusFilter,
   selectedCallout,
@@ -23,20 +14,13 @@ export default function PartsPanel({
   selectedIds,
   onToggle,
   onOpenPart,
-  onCopyOe,
-  onCopySelected,
-  onCopyAll,
-  onAddSelected,
-  onSelectAllVisible,
 }) {
   const rowRefs = useRef(new Map());
-  const [moreOpen, setMoreOpen] = useState(false);
 
   const visible = useMemo(() => parts.filter((part) => {
-    if (!matchesSearch(part, search)) return false;
     if (statusFilter === "all") return true;
     return statusOf(part) === statusFilter;
-  }), [parts, search, statusFilter]);
+  }), [parts, statusFilter]);
 
   const counts = useMemo(() => parts.reduce((acc, part) => {
     acc.all += 1;
@@ -53,18 +37,6 @@ export default function PartsPanel({
   const allSelected = visible.length > 0 && visible.every((part) => selectedIds.includes(part.key));
 
   return <section className="epc-card epc-parts-card">
-    <header className="epc-card-head">
-      <div className="epc-card-title"><ListBullets /><span>零件列表</span></div>
-      <span className="epc-count">共 {parts.length} 个零件</span>
-    </header>
-
-    <div className="epc-parts-search">
-      <label className="local-search">
-        <MagnifyingGlass />
-        <input aria-label="搜索零件" placeholder="搜索 OE 号 / 零件名称..." value={search} onChange={(event) => onSearch(event.target.value)} />
-      </label>
-    </div>
-
     <div className="epc-parts-filters" role="group" aria-label="零件状态">
       {[["all", "全部"], ["normal", "正常"], ["discontinued", "停用"]].map(([key, label]) => <button
         key={key}
@@ -73,21 +45,6 @@ export default function PartsPanel({
         aria-pressed={statusFilter === key}
         onClick={() => onStatusFilter(key)}
       >{label}<em>{counts[key]}</em></button>)}
-    </div>
-
-    <div className="epc-parts-toolbar">
-      <button type="button" className="epc-check" aria-label={allSelected ? "取消全选" : "全选"} onClick={() => onSelectAllVisible(visible, !allSelected)}>{allSelected ? <CheckSquare weight="fill" /> : <Square />}</button>
-      <span className="epc-toolbar-count">已选择 {selectedIds.length} 项</span>
-      <button type="button" className="epc-tool-btn" onClick={onCopySelected} disabled={!selectedIds.length && !visible.length}><Copy />复制 OE</button>
-      <button type="button" className="epc-tool-btn" onClick={() => onAddSelected(visible)} disabled={!visible.length}><PlusSquare />加入选件清单</button>
-      <div className="epc-more">
-        <button type="button" className="epc-tool-btn" onClick={() => setMoreOpen((value) => !value)} aria-expanded={moreOpen}>更多<CaretDown /></button>
-        {moreOpen ? <div className="epc-menu">
-          <button type="button" onClick={() => { setMoreOpen(false); onCopyAll(); }}><Copy />复制全部 OE</button>
-          <button type="button" onClick={() => { setMoreOpen(false); onSelectAllVisible(visible, true); }}><CheckSquare />全选当前结果</button>
-          <button type="button" onClick={() => { setMoreOpen(false); onSelectAllVisible(visible, false); }}><Trash />取消选择</button>
-        </div> : null}
-      </div>
     </div>
 
     <div className="epc-parts-table">
@@ -117,7 +74,7 @@ export default function PartsPanel({
                 <button type="button" className={`epc-check${checked ? " is-on" : ""}`} aria-label={checked ? "取消选择" : "选择零件"} aria-pressed={checked} onClick={() => onToggle(part)}>{checked ? <CheckSquare weight="fill" /> : <Square />}</button>
               </td>
               <td className="epc-cell-pos">{part.position || "—"}</td>
-              <td className="epc-cell-oe"><button type="button" className="epc-oe" title="点击复制 OE 号" onClick={() => onCopyOe(part.oe)}>{part.oe}</button></td>
+              <td className="epc-cell-oe"><button type="button" className="epc-oe" title="在爆炸图中定位图号" onClick={() => { if (part.position) onSelectCallout(part.position); }}>{part.oe}</button></td>
               <td className="epc-cell-name"><button type="button" className="epc-name" onClick={() => onOpenPart(part)}>{part.name}</button></td>
               <td>{part.quantity || ""}</td>
               <td><span className={`epc-status is-${status}`}><i />{STATUS_LABEL[status]}</span></td>

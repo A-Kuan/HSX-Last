@@ -82,6 +82,36 @@ test("EPC payload without model rows reports no match", () => {
   assert.equal(decoded.vin, VIN);
 });
 
+test("EPC login endpoint validates credentials and clears the session", async () => {
+  const previousToken = process.env.EPC_TOKEN;
+  const previousFile = process.env.EPC_TOKEN_FILE;
+  delete process.env.EPC_TOKEN;
+  process.env.EPC_TOKEN_FILE = join(mkdtempSync(join(tmpdir(), "hsx-epc-login-")), "token.json");
+  try {
+    await withApi(async (base) => {
+      const missing = await request(base, "/api/epc/login", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      assert.equal(missing.response.status, 422);
+      assert.match(missing.body.error, /账号/);
+
+      const status = await request(base, "/api/epc/status");
+      assert.equal(status.body.configured, false);
+      assert.equal(status.body.account, "");
+
+      const logout = await request(base, "/api/epc/logout", { method: "POST" });
+      assert.equal(logout.response.status, 200);
+      assert.equal(logout.body.configured, false);
+    });
+  } finally {
+    if (previousToken === undefined) delete process.env.EPC_TOKEN;
+    else process.env.EPC_TOKEN = previousToken;
+    if (previousFile === undefined) delete process.env.EPC_TOKEN_FILE;
+    else process.env.EPC_TOKEN_FILE = previousFile;
+  }
+});
+
 test("VIN EPC endpoints validate the VIN, require a token and serve the cache", async () => {
   const previousToken = process.env.EPC_TOKEN;
   const previousFile = process.env.EPC_TOKEN_FILE;

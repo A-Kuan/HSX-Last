@@ -1,16 +1,19 @@
-import { ArrowRight, Copy, ListBullets, Package, Trash, X } from "@phosphor-icons/react";
+import { ArrowRight, CaretDown, Copy, ListBullets, Package, Trash, X } from "@phosphor-icons/react";
 
-export default function SelectedBar({ items, submitting, onQty, onRemove, onClear, onCopyList, onInquiry }) {
-  return <section className="epc-selected">
+export default function SelectedBar({ items, submitting, collapsed, onToggle, onQty, onRemove, onClear, onCopyList, onInquiry }) {
+  return <section className={`epc-selected${collapsed ? " is-collapsed" : ""}`}>
     <header>
-      <div className="epc-card-title"><ListBullets /><span>本次选件清单</span><em>{items.length} 个零件</em></div>
-      <div className="epc-selected-actions">
+      <button type="button" className="epc-selected-toggle" aria-expanded={!collapsed} onClick={onToggle}>
+        <ListBullets /><span>本次选件清单</span><em>{items.length} 个零件</em>
+        <CaretDown className={`epc-selected-caret${collapsed ? "" : " is-open"}`} />
+      </button>
+      {collapsed ? null : <div className="epc-selected-actions">
         <button type="button" className="epc-ghost-btn" onClick={onClear} disabled={!items.length}><Trash />清空</button>
         <button type="button" className="epc-ghost-btn" onClick={onCopyList} disabled={!items.length}><Copy />复制清单</button>
         <button type="button" className="epc-primary-btn" onClick={onInquiry} disabled={!items.length || submitting}>{submitting ? "处理中..." : "加入询价清单"}<ArrowRight /></button>
-      </div>
+      </div>}
     </header>
-    <div className="epc-selected-list">
+    {collapsed ? null : <div className="epc-selected-list">
       {items.length ? items.map((item) => <div className="epc-selected-item" key={item.key}>
         <span className="epc-selected-thumb" aria-hidden="true"><Package /></span>
         <div className="epc-selected-main">
@@ -24,6 +27,6 @@ export default function SelectedBar({ items, submitting, onQty, onRemove, onClea
         </div>
         <button type="button" className="epc-item-remove" aria-label="移除" onClick={() => onRemove(item.key)}><X /></button>
       </div>) : <p className="field-note">还没有选择零件</p>}
-    </div>
+    </div>}
   </section>;
 }

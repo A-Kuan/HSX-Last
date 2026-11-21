@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const apiBase = () => String(process.env.EPC_API_BASE || "https://epcapi.g-part.cn").replace(/\/+$/, "");
@@ -172,6 +173,108 @@ export async function decodeVinViaEpc(vin, resolve = fallbackChassis) {
   return { ...normalizeEpcVinPayload(payload, resolve), version: EPC_CACHE_VERSION };
 }
 
+const OAUTH_URL = "https://crmapi.g-part.cn/uims-oauth/oauth/token";
+const OAUTH_CLIENT = { client_id: "WSS", client_secret: "Jp123488!!" };
+const OAUTH_HEADERS = {
+  accept: "application/json, text/plain, */*",
+  "accept-language": "zh-CN,zh;q=0.9",
+  "content-type": "application/x-www-form-urlencoded",
+  origin: "https://wssmall.g-part.cn",
+  referer: "https://wssmall.g-part.cn/",
+};
+// 极联商城自己的 EPC 入口就是用这个服务账号 + 当前登录用户信息换 EPC token 的（见商城前端 chunk）。
+const EPC_SERVICE_ACCOUNT = { username: "wss", password: "Jp123456@" };
+
+async function postForm(url, form, headers) {
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: form.toString(),
+      signal: AbortSignal.timeout(requestTimeout),
+    });
+  } catch {
+    throw epcError("极联登录接口暂时连不上", 502, "EPC_UNREACHABLE");
+  }
+  const body = await response.text();
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw epcError("极联登录返回了无法解析的内容", 502, "EPC_BAD_PAYLOAD");
+  }
+}
+
+/** 极联账号登录：商城 OAuth 拿 WSS token，再用服务账号换 EPC token，两个都落盘。 */
+export async function loginEpc(account, password) {
+  const username = String(account || "").trim();
+  const secret = String(password || "");
+  if (!username || !secret) throw epcError("请输入账号与密码", 422, "EPC_LOGIN_INPUT");
+
+  const oauth = await postForm(OAUTH_URL, new URLSearchParams({
+    username,
+    password: secret,
+    deviceId: randomUUID(),
+    autotest: "0",
+    grant_type: "password",
+    ...OAUTH_CLIENT,
+  }), OAUTH_HEADERS);
+  const accessToken = String(oauth?.data?.access_token || "");
+  const userInfo = oauth?.data?.userdetails?.userInfo || {};
+  const tenantInfo = oauth?.data?.userdetails?.tenantInfo || {};
+  if (String(oauth?.code ?? "") !== "0" || !accessToken) {
+    throw epcError(String(oauth?.message || oauth?.msg || "极联账号登录失败"), 401, "EPC_LOGIN_FAILED");
+  }
+
+  const epcForm = new URLSearchParams({
+    username: EPC_SERVICE_ACCOUNT.username,
+    password: EPC_SERVICE_ACCOUNT.password,
+    loginUserId: String(userInfo.id || ""),
+    loginUserCompanyId: String(tenantInfo.tenantId || ""),
+  });
+  const epc = await postForm(`${apiBase()}/etc/login?${epcForm.toString()}`, new URLSearchParams(), {
+    ...EPC_HEADERS,
+    "content-type": "application/x-www-form-urlencoded",
+  });
+  const epcToken = String(epc?.data?.token || "");
+  if (String(epc?.code ?? "") !== "0" || !epcToken) {
+    throw epcError(String(epc?.msg || "极联 EPC 登录失败"), 502, "EPC_TOKEN_FAILED");
+  }
+
+  const profile = {
+    account: username,
+    userName: String(userInfo.nickname || userInfo.staffName || userInfo.username || ""),
+    userId: String(userInfo.id || ""),
+    tenantId: String(tenantInfo.tenantId || ""),
+    tenantName: String(tenantInfo.tenantName || ""),
+  };
+  writeFileSync(tokenFile(), JSON.stringify({
+    token: epcToken,
+    accessToken,
+    ...profile,
+    savedAt: new Date().toISOString(),
+  }, null, 2));
+  return { ...(await readEpcStatus()), ...profile };
+}
+
+export function logoutEpc() {
+  if (existsSync(tokenFile())) writeFileSync(tokenFile(), "{}");
+}
+
+/** 登录账号信息（落盘文件里有就取，没有就从 JWT 里拆）。 */
+export function readEpcProfile() {
+  try {
+    const raw = JSON.parse(readFileSync(tokenFile(), "utf8"));
+    return {
+      account: String(raw?.account || ""),
+      userName: String(raw?.userName || raw?.userinfo?.userName || raw?.userinfo?.username || ""),
+      tenantName: String(raw?.tenantName || ""),
+    };
+  } catch {
+    return { account: "", userName: "", tenantName: "" };
+  }
+}
+
 export async function readEpcQuota() {
   const payload = await epcGet("/epc/record/getEpcTimes");
   const data = payload?.data || {};
@@ -183,10 +286,11 @@ export async function readEpcQuota() {
 }
 
 export async function readEpcStatus() {
-  if (!epcConfigured()) return { configured: false, quota: null };
+  const profile = readEpcProfile();
+  if (!epcConfigured()) return { configured: false, quota: null, ...profile };
   try {
-    return { configured: true, quota: await readEpcQuota() };
+    return { configured: true, quota: await readEpcQuota(), ...profile };
   } catch (error) {
-    return { configured: true, quota: null, error: error.message, code: error.code || "" };
+    return { configured: true, quota: null, error: error.message, code: error.code || "", ...profile };
   }
 }

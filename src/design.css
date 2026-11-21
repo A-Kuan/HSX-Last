@@ -1365,3 +1365,66 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
 .epc-hero-node svg { width: 28px; height: 28px; }
 .nv-trigger.is-current::after,
 .nv-trigger[aria-expanded="true"]::after { height: 3px; }
+
+/* ==========================================================================
+   参考稿精确还原（2026-11 第二版）：65px 顶栏 + 18px 导航 + 876px 居中卡片
+   颜色取自参考图像素：页面底 #f5f5f7、导航文字 #111827、高亮线 #4150fc、
+   搜索框 #f5f5f7、卡片边 #f0f0f2、卡片底部条同页面底
+   ========================================================================== */
+.app-header { height: 65px; padding: 0 24px; border-bottom: 1px solid #f0f0f2; }
+.nv-header .nv-shell { height: 100%; margin-left: -12px; }
+.nv-nav { height: 100%; gap: 0; }
+.nv-trigger { height: 100%; padding: 0 19px; border-radius: 0; background: transparent; color: #111827; font-size: 18px; font-weight: 500; gap: 7px; }
+.nv-trigger:hover { background: transparent; color: #111827; }
+.nv-trigger.is-current,
+.nv-trigger[aria-expanded="true"] { background: transparent; color: #111827; font-weight: 700; }
+.nv-trigger.is-current::after,
+.nv-trigger[aria-expanded="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 3px; border-radius: 0; background: #4150fc; }
+.nv-trigger .nv-caret { width: 12px; height: 12px; opacity: .8; }
+.global-search { width: 490px; height: 40px; padding: 0 8px 0 14px; border-radius: 8px; background: #f5f5f7; color: #8b8f99; gap: 10px; }
+.global-search svg { width: 18px; height: 18px; color: #6b7280; }
+.global-search input { font-size: 17px; color: #111827; }
+.global-search input::placeholder { color: #8b8f99; }
+.global-search kbd { font-size: 15px; color: #111827; border: 1px solid #d5d8de; border-radius: 6px; padding: 3px 9px; background: #fff; }
+.header-actions .icon-button { width: 40px; height: 40px; color: #111827; }
+.header-actions .icon-button svg { width: 22px; height: 22px; }
+
+.epc-landing { align-items: center; padding: 24px; background: #f5f5f7; }
+.epc-landing-card { width: 876px; max-width: 100%; border: 1px solid #f0f0f2; border-radius: 12px; box-shadow: 0 16px 32px rgba(17, 24, 39, .10), 0 2px 6px rgba(17, 24, 39, .04); }
+.epc-landing-search { height: 85px; padding: 0 30px; gap: 18px; border-bottom: 1px solid #f0f0f2; }
+.epc-landing-search > svg { width: 24px; height: 24px; color: #6b7280; }
+.epc-landing-divider { width: 1px; height: 26px; background: #e6e8ec; flex: none; }
+.epc-landing-search input { font-size: 22px; color: #111827; }
+.epc-landing-search input::placeholder { color: #4b4f5a; }
+.epc-landing-count { font-size: 18px; color: #9aa1ad; }
+.epc-landing-search kbd { font-size: 16px; color: #4b4f5a; border: 1px solid #d5d8de; border-radius: 6px; padding: 2px 8px; background: #fff; }
+.epc-landing-submit { height: auto; padding: 0 4px; border: 0; border-radius: 0; background: none; color: #111827; font-size: 18px; font-weight: 400; cursor: pointer; }
+.epc-landing-submit:disabled { background: none; color: #9aa1ad; cursor: default; }
+
+.epc-landing-body { padding: 28px 24px 34px; }
+.epc-hero { width: 430px; height: 215px; margin: 0 auto 22px; }
+.epc-hero-car { width: 300px; height: 150px; }
+.epc-hero-node { width: 58px; height: 58px; border-radius: 14px; background: #f6f7f9; border: 0; box-shadow: none; color: #6b7280; }
+.epc-hero-node svg { width: 26px; height: 26px; }
+.epc-hero-node.is-oil { left: 0; top: 6px; }
+.epc-hero-node.is-plug { right: 0; top: 6px; }
+.epc-hero-node.is-drop { left: 0; bottom: 6px; }
+.epc-hero-node.is-disc { right: 0; bottom: 6px; }
+.epc-hero-links path { stroke: #d6d9df; stroke-width: 1.4; stroke-dasharray: 4 4; }
+.epc-landing-body h2 { margin: 0 0 12px; font-size: 30px; font-weight: 700; color: #111827; letter-spacing: .01em; }
+.epc-landing-body p { font-size: 20px; color: #4b5563; }
+.epc-landing-foot { height: 65px; padding: 0 30px; border-top: 1px solid #f0f0f2; background: #f5f5f7; }
+.epc-landing-account { font-size: 20px; color: #111827; padding: 0; }
+.epc-landing-account:hover { color: #4150fc; }
+
+/* 与参考稿对齐的最终尺寸：卡片总高 492、插画区 200 */
+.epc-landing-body { padding: 22px 24px 30px; }
+.epc-hero { width: 430px; height: 200px; margin: 0 auto 16px; }
+.epc-hero-car { width: 340px; height: 170px; }
+.epc-landing-body h2 { margin: 0 0 10px; line-height: 38px; }
+.epc-landing-body p { line-height: 26px; }
+
+/* 参考插画直接使用原图，替换自绘 SVG */
+.epc-hero-img { display: block; width: 450px; height: 217px; margin: 8px auto 6px; }
+.epc-landing-body { padding: 0 24px 36px; }
+.epc-landing-body h2 { margin: 0 0 10px; line-height: 38px; }

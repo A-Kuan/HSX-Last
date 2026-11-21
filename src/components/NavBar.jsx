@@ -41,7 +41,7 @@ export function NavBar({
   const modules = [
     {
       key: "sku",
-      label: "SKU商品库",
+      label: "SKU 商品库",
       groups: [
         {
           title: "状态",
@@ -264,7 +264,7 @@ export function NavBar({
         <input
           value={term}
           aria-label="全局搜索"
-          placeholder="全局搜索（SKU / OE 号）"
+          placeholder="全局搜索 （SKU / OE 号）"
           onChange={(event) => setTerm(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter") submitSearch(); }}
         />

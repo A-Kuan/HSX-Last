@@ -1513,3 +1513,50 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
 .brand-part-thumb-cell { width: 64px; }
 .brand-part-thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; background: #f4f6fa; display: inline-block; }
 .brand-part-thumb.is-empty { background: #f4f6fa; }
+
+/* 零件抽屉：双栏版式（按参考稿重构） */
+.epc-drawer--wide { width: min(920px, calc(100vw - 120px)); }
+.epc-drawer--wide .epc-drawer-body { padding: 4px 28px 20px; }
+.epc-drawer-heading { display: flex; align-items: center; gap: 14px; padding: 10px 0 18px; border-bottom: 1px solid var(--line); }
+.epc-drawer-heading .epc-drawer-oe { font-size: 32px; line-height: 1.1; margin: 0; letter-spacing: -.5px; }
+.epc-drawer-heading-sep { width: 1px; height: 22px; background: var(--line-strong); flex: none; }
+.epc-drawer-heading .epc-drawer-name { margin: 0; font-size: 16px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epc-edit-alias { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px; margin-left: auto; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card); font-size: 14px; color: var(--text); cursor: pointer; flex: none; }
+.epc-edit-alias:hover { border-color: var(--brand); color: var(--brand); }
+.epc-edit-alias.is-open { border-color: var(--brand); color: var(--brand); background: #f5f8ff; }
+.epc-alias-editor { padding: 14px 0 4px; border-bottom: 1px solid var(--line); }
+.epc-alias-editor .epc-alias-chips { margin-bottom: 10px; }
+.epc-drawer-grid { display: grid; grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1.15fr); gap: 0 28px; padding-top: 20px; }
+.epc-drawer-col { min-width: 0; display: flex; flex-direction: column; gap: 24px; }
+.epc-drawer-sep { background: var(--line); }
+.epc-part-section h3 { font-size: 18px; font-weight: 600; margin: 0 0 14px; color: var(--text); }
+.epc-drawer--wide .epc-replace-step { padding: 10px 0; align-items: flex-start; }
+.epc-drawer--wide .epc-replace-step:not(:last-of-type)::after { left: 13px; top: 42px; bottom: -4px; width: 1px; background: #dfe5ee; }
+.epc-drawer--wide .epc-replace-index { width: 27px; height: 27px; font-size: 13px; }
+.epc-drawer--wide .epc-replace-main strong { font-size: 17px; }
+.epc-drawer--wide .epc-replace-main em { font-size: 13px; }
+.epc-drawer--wide .epc-replace-tag { margin-left: 8px; margin-top: 2px; height: 24px; display: inline-flex; align-items: center; font-size: 12px; padding: 0 10px; }
+.epc-replace-tag.is-latest { color: #1c9a63; border-color: #bfe6d2; background: #f2fbf6; }
+.epc-replace-tag.is-current { color: var(--brand); border-color: #c9d8ff; background: #f3f7ff; }
+.epc-drawer--wide .epc-replace-alt { margin-top: 0; padding: 0; border-top: 0; gap: 10px; }
+.epc-drawer--wide .epc-replace-alt > div { gap: 14px; }
+.epc-drawer--wide .epc-replace-alt strong { font-size: 16px; }
+.epc-drawer--wide .epc-replace-alt em { font-size: 13px; }
+.epc-price-card { border: 1px solid var(--line); border-radius: 12px; padding: 4px 16px; }
+.epc-price-card-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; font-size: 15px; border-top: 1px solid var(--line-soft); }
+.epc-price-card-row:first-child { border-top: 0; }
+.epc-price-card-row strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.epc-brand-table { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.epc-brand-table-head, .epc-brand-table-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 16px; padding: 12px 18px; align-items: center; }
+.epc-brand-table-head { background: #f6f8fb; color: var(--muted); font-size: 13px; font-weight: 500; border-bottom: 1px solid var(--line); }
+.epc-brand-table-row { border-top: 1px solid var(--line-soft); font-size: 15px; }
+.epc-brand-table-row:first-of-type { border-top: 0; }
+.epc-brand-table-row strong { font-variant-numeric: tabular-nums; font-size: 15px; }
+.epc-brand-table-row span { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epc-drawer--wide footer { display: flex; gap: 16px; padding: 16px 28px 20px; }
+.epc-drawer--wide footer .epc-ghost-btn { flex: 1; height: 48px; justify-content: center; border-radius: 12px; font-size: 16px; }
+.epc-drawer--wide footer .epc-primary-btn { flex: 1.6; height: 48px; justify-content: center; border-radius: 12px; font-size: 16px; }
+
+.epc-drawer--wide .epc-replace-step:not(:last-of-type)::after { background: #d8dfea; }
+
+.epc-drawer--wide .epc-replace-step:not(:last-of-type)::after { background: #ccd6e4; }

@@ -1187,10 +1187,8 @@ export function App() {
     const normalize = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, "");
     const byKey = new Map();
     for (const sku of skus) {
-      for (const key of [sku.id, sku.partNo]) {
-        const normalized = normalize(key);
-        if (normalized && !byKey.has(normalized)) byKey.set(normalized, sku);
-      }
+      const normalized = normalize(sku.id);
+      if (normalized && !byKey.has(normalized)) byKey.set(normalized, sku);
     }
     setImageBatchBusy(true);
     let ok = 0;

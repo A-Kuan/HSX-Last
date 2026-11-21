@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Copy, Package, Plus, X } from "@phosphor-icons/react";
-import { api } from "../../api.js";
+import { Copy, ImageSquare, Package, Plus, X } from "@phosphor-icons/react";
+import { API_BASE, api } from "../../api.js";
 
 export default function PartDrawer({ part, vin, vehicleName, inList, onClose, onAdd, onCopyOe, onAddAlias, onRemoveAlias }) {
   const [aliasDraft, setAliasDraft] = useState("");
@@ -39,6 +39,7 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
   const replaceChain = [...(extras?.replace?.chain || [])].reverse();
   const replaceAlternatives = extras?.replace?.alternatives || [];
   const articles = extras?.articles || [];
+  const products = extras?.products || [];
   const places = extras?.place || [];
 
   return <aside className="epc-drawer" role="dialog" aria-modal="true" aria-label="零件详情">
@@ -80,6 +81,25 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
             </div>)}
           </div> : null}
         </div> : <p className="field-note">暂无替换件</p>}
+      </section>
+
+      <section className="epc-part-block">
+        <h3>本店商品</h3>
+        {!extras ? <p className="field-note">加载中…</p> : products.length ? <div className="epc-sku-list">
+          {products.map((item) => <a
+            className="epc-sku-row"
+            key={item.id}
+            href={`${API_BASE}/skus/${encodeURIComponent(item.id)}/image`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {item.hasImage
+              ? <img src={`${API_BASE}/skus/${encodeURIComponent(item.id)}/image`} alt="" loading="lazy" />
+              : <span className="epc-sku-noimg"><ImageSquare /></span>}
+            <span className="epc-sku-main"><strong>{item.partNo || item.name}</strong><em>{[item.brand, item.name].filter(Boolean).join(" · ")}</em></span>
+            <b>{item.price > 0 ? `¥${item.price.toFixed(2)}` : "面议"}</b>
+          </a>)}
+        </div> : <p className="field-note">暂无本店商品</p>}
       </section>
 
       <section className="epc-part-block">

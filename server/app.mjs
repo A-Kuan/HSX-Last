@@ -17,7 +17,7 @@ import { loadCatalog, loadGroupCounts, loadParts, loadSubgroups } from "./epc-ca
 import { aliasesForOes, aliasKeyOf, deletePartAlias, listPartAliases, oeKeyOf, upsertPartAlias } from "./part-aliases.mjs";
 import { searchEpcWorld } from "./epc-search.mjs";
 import { loadEpcRecords, loadMaintenance, loadMaintenanceParts, loadPartExtras } from "./epc-extras.mjs";
-import { listBrandCatalog, listBrandParts } from "./brand-catalog.mjs";
+import { listBrandCatalog, listBrandParts, loadOeSkus } from "./brand-catalog.mjs";
 
 const json = (res, status, body) => {
   const data = JSON.stringify(body);
@@ -237,7 +237,8 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
         const oe = String(requestUrl.searchParams.get("oe") || "").trim();
         if (!validEpcVin(vin) || !oe) return json(res, 422, { error: "需要 VIN 与 OE 号" });
         try {
-          return json(res, 200, await loadPartExtras(vin, oe));
+          const extras = await loadPartExtras(vin, oe);
+          return json(res, 200, { ...extras, products: loadOeSkus(db, oe) });
         } catch (error) {
           return json(res, error.status || 502, { error: error.message });
         }

@@ -2,6 +2,8 @@
  * 品牌件目录（只用本系统 SKU 数据，不依赖极联）。
  * 左侧品牌来自 brands 字典，右侧是该品牌下的 SKU：品牌件号、OE、名称、品类、价格、状态。
  */
+import { oeKeyOf } from "./part-aliases.mjs";
+
 const clean = (value) => String(value ?? "").trim();
 
 export function listBrandCatalog(db) {
@@ -88,7 +90,36 @@ export function listBrandParts(db, { brand = "", q = "", page = 1, size = 20 } =
       price: Number(row.price || 0),
       note: clean(row.note),
       image: clean(row.image),
+      hasImage: Boolean(row.image),
       vehicles: fitments.get(row.group_id) || [],
     })),
   };
+}
+
+
+/** 按 OE 找本店 SKU（用于 EPC 零件抽屉里展示实物图与售价）。 */
+export function loadOeSkus(db, oe, limit = 6) {
+  const key = oeKeyOf(oe);
+  if (!key) return [];
+  const rows = db.prepare(`
+    SELECT DISTINCT s.id, s.brand, s.part_no, s.price, s.image, s.note, g.name, g.category
+    FROM skus s
+    JOIN product_groups g ON g.id = s.group_id
+    WHERE s.status = 'enabled' AND (
+      EXISTS (SELECT 1 FROM sku_oe_numbers o WHERE o.sku_id = s.id AND o.normalized_oe = ?)
+      OR EXISTS (SELECT 1 FROM group_oe_numbers o WHERE o.group_id = s.group_id AND o.normalized_oe = ?)
+    )
+    ORDER BY s.price > 0 DESC, s.part_no
+    LIMIT ?
+  `).all(key, key, limit);
+  return rows.map((row) => ({
+    id: String(row.id),
+    brand: clean(row.brand),
+    partNo: clean(row.part_no),
+    price: Number(row.price || 0),
+    note: clean(row.note),
+    name: clean(row.name),
+    category: clean(row.category),
+    hasImage: Boolean(row.image),
+  }));
 }

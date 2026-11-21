@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { MagnifyingGlass } from "@phosphor-icons/react";
-import { api } from "../api.js";
+import { API_BASE, api } from "../api.js";
 
 const money = (value) => Number(value || 0) > 0 ? `¥${Number(value).toFixed(2)}` : "面议";
 
@@ -70,9 +70,12 @@ export default function BrandCatalogPage() {
         {error ? <p className="dict-error">{error}</p> : null}
         <div className="brand-part-table-wrap">
           <table className="brand-part-table">
-            <thead><tr><th>品牌件号</th><th>OE 号</th><th>名称</th><th>品类</th><th>安装位置</th><th>价格</th><th>车型</th></tr></thead>
+            <thead><tr><th>图片</th><th>品牌件号</th><th>OE 号</th><th>名称</th><th>品类</th><th>安装位置</th><th>价格</th><th>车型</th></tr></thead>
             <tbody>
               {data ? (data.items.length ? data.items.map((item) => <tr key={item.id}>
+                <td className="brand-part-thumb-cell">{item.hasImage
+                  ? <img className="brand-part-thumb" src={`${API_BASE}/skus/${encodeURIComponent(item.id)}/image`} alt="" loading="lazy" />
+                  : <span className="brand-part-thumb is-empty" />}</td>
                 <td className="brand-part-no">{item.partNo}</td>
                 <td>{item.oe || "—"}</td>
                 <td title={item.name}>{item.name}</td>
@@ -80,7 +83,7 @@ export default function BrandCatalogPage() {
                 <td>{item.position || "—"}</td>
                 <td className="brand-part-price">{money(item.price)}</td>
                 <td className="brand-part-vehicles" title={item.vehicles.join("；")}>{item.vehicles.length ? item.vehicles[0] + (item.vehicles.length > 1 ? ` +${item.vehicles.length - 1}` : "") : "—"}</td>
-              </tr>) : <tr><td colSpan={7} className="brand-part-empty">{q.trim() ? "没有匹配项" : "暂无品牌件"}</td></tr>) : null}
+              </tr>) : <tr><td colSpan={8} className="brand-part-empty">{q.trim() ? "没有匹配项" : "暂无品牌件"}</td></tr>) : null}
             </tbody>
           </table>
           {loading ? <p className="field-note">加载中…</p> : null}

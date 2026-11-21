@@ -99,22 +99,41 @@ const normalizeQuantity = (value) => {
   return [...new Set(values)].join(" / ");
 };
 
+/** refmid 形如 '["902005,7"]'：图号指向另一张图板（本图没有 OE，只是「参见图板」）。 */
+const parseReference = (refmid) => {
+  const raw = String(refmid || "").trim();
+  if (!raw) return null;
+  let list;
+  try {
+    list = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const first = Array.isArray(list) ? String(list[0] || "") : "";
+  const [mid, position] = first.split(",");
+  if (!mid) return null;
+  return { mid: mid.trim(), position: String(position || "").trim() };
+};
+
 export function parseParts(rows = []) {
   const parts = [];
   for (const row of rows) {
     const oe = cleanLabel(row.pid);
-    if (!oe) continue;
+    const reference = parseReference(row.refmid);
+    if (!oe && !reference) continue;
+    const rawName = cleanLabel(row.label);
     parts.push({
       oe,
-      name: cleanLabel(row.label),
+      name: reference && !oe ? rawName.replace(/参见图板.*$/, "").trim() || rawName : rawName,
       position: cleanLabel(row.pnum),
-      quantity: normalizeQuantity(row.quantity),
+      quantity: oe ? normalizeQuantity(row.quantity) : "",
       saCode: cleanLabel(row.saCode),
       remark: cleanLabel(row.remark),
       model: cleanLabel(row.model),
       condition: cleanLabel(row.condition),
       alternate: cleanLabel(row.itid),
-      discontinued: /弃用/.test(cleanLabel(row.label)) || String(row.isReplace || "") === "1",
+      reference,
+      discontinued: /弃用/.test(rawName) || String(row.isReplace || "") === "1",
       // 极联按 VIN 配置判断：colorValue=0 表示不适用这台车（接口在 filter=1 时直接剔除）
       applicable: String(row.colorValue ?? "1") !== "0",
     });
@@ -131,6 +150,12 @@ export async function resolveCatalogVehicle(vin) {
   const data = (await hsPort(`/vins/cars/vin?vin=${encodeURIComponent(vin)}&brandCode=`)).data;
   const modelName = cleanLabel(data.modelName);
   const [brand = "", ...seriesParts] = modelName.split("-");
+  // mainData：内饰、变速箱、发动机、颜色、车型年份…；subData：PR 选装码 → 配置说明（7V0 黑色仪表盘…）
+  // 两段合成一份配置清单，界面按「左码 / 左字段名 + 右说明」展示，搜索时一起过滤
+  const config = [
+    ...Object.entries(data.mainData || {}).map(([label, value]) => ({ label: cleanLabel(label), value: cleanLabel(value) })),
+    ...Object.entries(data.subData || {}).map(([code, value]) => ({ label: cleanLabel(code), value: cleanLabel(value) })),
+  ].filter((row) => row.label && row.value);
   const vehicle = {
     vin: String(data.vin || vin),
     modelName,
@@ -139,6 +164,7 @@ export async function resolveCatalogVehicle(vin) {
     year: cleanLabel(data.year),
     brandCode: String(data.brandCode || ""),
     mcid: String(data.mcid || ""),
+    config,
   };
   if (!vehicle.mcid) throw catalogError("极联目录里没有这台车", 404);
   return cacheSet(key, vehicle);

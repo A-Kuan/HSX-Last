@@ -1,10 +1,28 @@
-import { Copy, Package, X } from "@phosphor-icons/react";
+import { useState } from "react";
+import { Copy, Package, Plus, X } from "@phosphor-icons/react";
 
-export default function PartDrawer({ part, vehicleName, inList, onClose, onAdd, onCopyOe }) {
+export default function PartDrawer({ part, vehicleName, inList, onClose, onAdd, onCopyOe, onAddAlias, onRemoveAlias }) {
+  const [aliasDraft, setAliasDraft] = useState("");
+  const [saving, setSaving] = useState(false);
   if (!part) return null;
   const status = part.discontinued || part.applicable === false ? "discontinued" : "normal";
   const statusText = status === "discontinued" ? "已停用" : "正常";
   const replacements = part.replacements || [];
+  const aliases = part.aliases || [];
+
+  const submitAlias = async (event) => {
+    event.preventDefault();
+    const value = aliasDraft.trim();
+    if (!value || saving) return;
+    setSaving(true);
+    try {
+      await onAddAlias?.(value);
+      setAliasDraft("");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return <aside className="epc-drawer" role="dialog" aria-modal="true" aria-label="零件详情">
     <header>
       <div className="epc-card-title"><Package /><span>零件详情</span></div>
@@ -22,6 +40,17 @@ export default function PartDrawer({ part, vehicleName, inList, onClose, onAdd, 
         <div><dt>参考价格</dt><dd>{part.price || "—"}</dd></div>
         <div><dt>适用车型</dt><dd>{vehicleName || "—"}</dd></div>
       </dl>
+      <section className="epc-part-alias">
+        <h3>零件别名</h3>
+        {aliases.length ? <div className="epc-alias-chips">{aliases.map((item) => <span key={item.id} className="epc-alias-chip">
+          {item.alias}
+          <button type="button" aria-label={`删除别名 ${item.alias}`} onClick={() => onRemoveAlias?.(item.id)}><X /></button>
+        </span>)}</div> : null}
+        <form className="epc-alias-form" onSubmit={submitAlias}>
+          <input aria-label="添加别名" placeholder="添加别名，如 机油格座" value={aliasDraft} onChange={(event) => setAliasDraft(event.target.value)} maxLength={40} />
+          <button type="submit" className="epc-ghost-btn" disabled={!aliasDraft.trim() || saving}><Plus />{saving ? "保存中" : "添加"}</button>
+        </form>
+      </section>
       <section className="epc-replacement">
         <div className="epc-replacement-head">
           <h3>替代关系</h3>

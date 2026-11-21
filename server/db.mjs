@@ -204,6 +204,38 @@ function migrate(db) {
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS part_aliases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      oe_key TEXT NOT NULL,
+      oe TEXT NOT NULL,
+      official_name TEXT NOT NULL DEFAULT '',
+      alias TEXT NOT NULL,
+      alias_key TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      mid TEXT NOT NULL DEFAULT '',
+      figure TEXT NOT NULL DEFAULT '',
+      position TEXT NOT NULL DEFAULT '',
+      hits INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS epc_part_index (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      vin_key TEXT NOT NULL,
+      group_num TEXT NOT NULL,
+      mid TEXT NOT NULL,
+      figure TEXT NOT NULL,
+      position TEXT NOT NULL,
+      oe_key TEXT NOT NULL,
+      oe TEXT NOT NULL,
+      name TEXT NOT NULL,
+      indexed_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS epc_search_index (
+      vin_key TEXT PRIMARY KEY,
+      parts INTEGER NOT NULL DEFAULT 0,
+      built_at TEXT NOT NULL
+    );
   `);
   ensureColumn(db, "product_groups", "position", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "skus", "origin", "TEXT NOT NULL DEFAULT ''");
@@ -220,6 +252,10 @@ function migrate(db) {
   ensureColumn(db, "vehicles", "vin", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "vehicles", "displacement", "TEXT NOT NULL DEFAULT ''");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicles_vin ON vehicles(vin) WHERE vin <> ''");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_part_aliases_key ON part_aliases(oe_key, alias_key)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_part_aliases_alias ON part_aliases(alias_key)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_epc_part_index_vin ON epc_part_index(vin_key, oe_key)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_epc_part_index_mid ON epc_part_index(vin_key, mid)");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_skus_part_key ON skus(source_type, oem_brand, brand, part_no COLLATE NOCASE, origin) WHERE part_no <> ''");
   db.exec("DROP INDEX IF EXISTS idx_skus_brand_part_no");
   db.exec("CREATE INDEX IF NOT EXISTS idx_skus_oem_brand ON skus(oem_brand)");

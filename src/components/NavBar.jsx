@@ -78,6 +78,10 @@ export function NavBar({
           title: "其他字典",
           items: DICT_TABS.slice(4).map(([key, label]) => ({ key, label, run: () => onConfigTab(key) })),
         },
+        {
+          title: "零件",
+          items: [{ key: "partAliases", label: "零件别名", run: () => onView("aliases") }],
+        },
       ],
     },
   ];

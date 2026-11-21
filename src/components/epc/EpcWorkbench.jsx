@@ -8,6 +8,7 @@ import PartDrawer from "./PartDrawer.jsx";
 import SelectedBar from "./SelectedBar.jsx";
 import VehicleConfigModal from "./VehicleConfigModal.jsx";
 import EpcLanding from "./EpcLanding.jsx";
+import EpcRecordsModal from "./EpcRecordsModal.jsx";
 import EpcLoginModal from "../EpcLoginModal.jsx";
 
 const emptyPart = { parts: [], hotspots: [], image: "" };
@@ -40,6 +41,7 @@ export default function EpcWorkbench({ initialVin = "" }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const [inquiry, setInquiry] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [recordsOpen, setRecordsOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [epcStatus, setEpcStatus] = useState(null);
   const [selectedOpen, setSelectedOpen] = useState(false);
@@ -379,7 +381,7 @@ export default function EpcWorkbench({ initialVin = "" }) {
         <span className="epc-vehicle-text"><strong>{vehicleLabel}</strong><span>{catalog.vehicle.vin}</span></span>
         <span className="epc-vehicle-more">车型配置</span>
       </button> : null}
-      <button type="button" className="secondary-button epc-account" onClick={() => setLoginOpen(true)}>
+      <button type="button" className="secondary-button epc-account" onClick={() => (epcStatus?.configured ? setRecordsOpen(true) : setLoginOpen(true))}>
         {epcStatus?.configured ? `极联 · 余 ${epcStatus.quota?.remaining ?? "—"} 次` : "极联登录"}
       </button>
     </form>
@@ -471,6 +473,7 @@ export default function EpcWorkbench({ initialVin = "" }) {
     {activePart ? <div className="overlay drawer-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setActivePart(null); }}>
       <PartDrawer
         part={activePart}
+        vin={catalog?.vehicle.vin || ""}
         vehicleName={vehicleLabel}
         inList={selected.some((item) => item.key === activePart.key)}
         onClose={() => setActivePart(null)}
@@ -505,6 +508,7 @@ export default function EpcWorkbench({ initialVin = "" }) {
 
     {toast ? <div className="epc-toast">{toast}</div> : null}
     {configOpen && catalog ? <VehicleConfigModal vehicle={catalog.vehicle} onClose={() => setConfigOpen(false)} /> : null}
+    {recordsOpen ? <EpcRecordsModal onClose={() => setRecordsOpen(false)} /> : null}
     {loginOpen && <EpcLoginModal onClose={() => setLoginOpen(false)} onToast={notify} onSaved={(data) => setEpcStatus(data)} />}
   </main>;
 }

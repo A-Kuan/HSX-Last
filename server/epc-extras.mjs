@@ -119,17 +119,6 @@ const normalizeReplace = (rows = []) => {
   return { chain, alternatives };
 };
 
-/** 渠道价格：4S/原厂件等报价。 */
-const normalizePlace = (rows = []) => rows.map((row) => ({
-  supplier: clean(row.supplier),
-  name: clean(row.name),
-  partType: clean(row.partType),
-  salePrice: clean(row.salePrice),
-  costPrice: clean(row.costPrice),
-  available: Number(row.available || 0) === 1,
-  remark: clean(row.remark),
-}));
-
 /** 品牌件反查：OE → 可替代的品牌件（供应商、件号、名称、图片）。 */
 const normalizeArticles = (rows = []) => rows.map((row) => {
   const host = String(row.images?.[0] ? "" : "");
@@ -149,18 +138,15 @@ const normalizeArticles = (rows = []) => rows.map((row) => {
 export async function loadPartExtras(vin, oe) {
   const { base } = await vehicleQuery(vin);
   const query = `${base}&oe=${encodeURIComponent(oe)}`;
-  const [place, replace, articles] = await Promise.allSettled([
-    hs(`/parts/place/${encodeURIComponent(oe)}?${base}`),
+  const [replace, articles] = await Promise.allSettled([
     hs(`/parts/replace/${encodeURIComponent(oe)}?${base}`),
     hs(`/parts/article/${encodeURIComponent(oe)}?${base}`),
   ]);
   return {
     oe,
-    place: place.status === "fulfilled" ? normalizePlace(place.value.data || []) : [],
     replace: replace.status === "fulfilled" ? normalizeReplace(replace.value.data || []) : [],
     articles: articles.status === "fulfilled" ? normalizeArticles(articles.value.data || []) : [],
     errors: {
-      place: place.status === "rejected" ? place.reason.message : "",
       replace: replace.status === "rejected" ? replace.reason.message : "",
       articles: articles.status === "rejected" ? articles.reason.message : "",
     },

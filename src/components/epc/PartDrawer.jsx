@@ -47,7 +47,6 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
   const replaceChain = [...(extras?.replace?.chain || [])].reverse();
   const replaceAlternatives = extras?.replace?.alternatives || [];
   const articles = extras?.articles || [];
-  const places = extras?.place || [];
   const products = extras?.products || [];
 
   const badgeOf = (node, index) => {
@@ -108,16 +107,6 @@ export default function PartDrawer({ part, vin, vehicleName, inList, onClose, on
               {replaceAlternatives.map((item) => <div key={item.oe}>
                 <strong>{item.oe}</strong>
                 <em>{[item.label, item.price ? `¥${item.price}` : ""].filter(Boolean).join(" · ")}</em>
-              </div>)}
-            </div>
-          </section> : null}
-
-          {places.length ? <section className="epc-part-section">
-            <h3>渠道价格</h3>
-            <div className="epc-price-card">
-              {places.map((place) => <div className="epc-price-card-row" key={`${place.supplier}-${place.name}`}>
-                <span>{place.name || place.supplier}</span>
-                <strong>{place.salePrice ? `¥${place.salePrice}` : "—"}</strong>
               </div>)}
             </div>
           </section> : null}

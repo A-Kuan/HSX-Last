@@ -14,8 +14,8 @@ import {
 } from "./db.mjs";
 import { decodeVinViaEpc, EPC_CACHE_VERSION, loginEpc, logoutEpc, readEpcQuota, readEpcStatus } from "./epc.mjs";
 import { loadCatalog, loadGroupCounts, loadParts, loadSubgroups } from "./epc-catalog.mjs";
-import { aliasesForOes, deletePartAlias, listPartAliases, oeKeyOf, upsertPartAlias } from "./part-aliases.mjs";
-import { epcIndexStatus, searchEpcParts, startEpcIndexRebuild } from "./epc-index.mjs";
+import { aliasesForOes, aliasKeyOf, deletePartAlias, listPartAliases, oeKeyOf, upsertPartAlias } from "./part-aliases.mjs";
+import { searchEpcWorld } from "./epc-search.mjs";
 
 const json = (res, status, body) => {
   const data = JSON.stringify(body);
@@ -219,19 +219,34 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
         if (!deletePartAlias(db, partAliasMatch[1])) return json(res, 404, { error: "别名不存在" });
         return json(res, 200, { ok: true });
       }
-      if (req.method === "POST" && pathname === "/api/epc/search/rebuild") {
-        const body = await readJson(req);
-        const vin = String(body.vin || requestUrl.searchParams.get("vin") || "").trim().toUpperCase();
-        if (!validEpcVin(vin)) return json(res, 422, { error: "VIN 应为 17 位字母数字，且不含 I、O、Q" });
-        return json(res, 200, { vin, ...startEpcIndexRebuild(db, vin) });
-      }
       if (req.method === "GET" && pathname === "/api/epc/search") {
         const vin = epcVin();
         if (!validEpcVin(vin)) return json(res, 422, { error: "VIN 应为 17 位字母数字，且不含 I、O、Q" });
         const q = String(requestUrl.searchParams.get("q") || "").trim();
-        const status = epcIndexStatus(db, vin);
-        if (!status.ready) return json(res, 200, { status: status.building ? "building" : "idle", ...status, results: [], total: 0 });
-        return json(res, 200, { status: "ready", ...status, ...searchEpcParts(db, vin, q) });
+        if (!q) return json(res, 200, { status: "ready", results: [], total: 0 });
+        let base;
+        try {
+          base = await searchEpcWorld(vin, q);
+        } catch (searchError) {
+          return json(res, searchError.status || 502, { error: searchError.message });
+        }
+        const results = [...base.results];
+        const seen = new Set(results.map((item) => `${item.mid}|${item.position}|${item.oe}`));
+        // 别名叫法：命中别名后用它对应的 OE 再查一次，把该图号上的零件带出来
+        const keyword = aliasKeyOf(q);
+        const aliases = keyword ? listPartAliases(db, { q, limit: 30 }).filter((item) => aliasKeyOf(item.alias).includes(keyword)) : [];
+        for (const alias of aliases.slice(0, 3)) {
+          try {
+            const extra = await searchEpcWorld(vin, alias.oe);
+            for (const item of extra.results) {
+              const id = `${item.mid}|${item.position}|${item.oe}`;
+              if (seen.has(id)) continue;
+              seen.add(id);
+              results.unshift({ ...item, kind: "alias", aliases: [alias.alias] });
+            }
+          } catch { /* 单个别名查询失败不影响主结果 */ }
+        }
+        return json(res, 200, { status: "ready", results, total: results.length });
       }
       if (req.method === "GET" && pathname === "/api/generations") {
         return json(res, 200, { items: listVehicleGenerations(db) });

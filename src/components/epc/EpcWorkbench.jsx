@@ -241,10 +241,8 @@ export default function EpcWorkbench({ initialVin = "" }) {
     openSearchResult(item);
   };
 
-  const rebuildSearchIndex = () => {
-    if (!catalog) return;
-    api("/epc/search/rebuild", { method: "POST", body: JSON.stringify({ vin: catalog.vehicle.vin }) }).catch(() => {});
-    setSearchData({ status: "building", progress: 0, total: 0 });
+  const retrySearch = () => {
+    setSearchData(null);
     setSearchTick((value) => value + 1);
   };
 
@@ -401,27 +399,18 @@ export default function EpcWorkbench({ initialVin = "" }) {
           onFocus={() => { if (searchData) setSearchOpen(true); }}
         />
         {searchOpen && searchQ.trim() ? <div className="epc-search-pop">
-          {mergedSearchResults.length ? <>
-            {searchData?.failed ? <p className="epc-search-note">索引未完整（{searchData.failed} 张图未收录）<button type="button" onClick={rebuildSearchIndex}>重建索引</button></p> : null}
-            {mergedSearchResults.map((item) => <button
+          {mergedSearchResults.length ? mergedSearchResults.map((item) => <button
               key={`${item.local ? "local" : "remote"}-${item.mid}-${item.position}-${item.oe}`}
               type="button"
               className="epc-search-row"
               onClick={() => pickSearchResult(item)}
             >
               <span className="epc-search-figure">{item.figure || "当前图"}</span>
-              <span className="epc-search-main"><strong>{item.oe || "参见"}</strong><em>{item.name}</em></span>
+              <span className="epc-search-main"><strong>{item.oe || "参见"}</strong><em>{[item.mainGroup, item.group].filter(Boolean).join(" / ") || item.name}</em></span>
               {item.aliases?.length ? <span className="epc-search-alias">{item.aliases[0]}</span> : null}
-            </button>)}
-          </> : searchData?.status === "building" ? (searchData.error
-            ? <p className="epc-search-note">{searchData.error}<button type="button" onClick={rebuildSearchIndex}>重建索引</button></p>
-            : <p className="field-note">正在建立检索索引 {searchData.progress}/{searchData.total || "—"}</p>)
-            : searchData?.status === "error" ? <p className="epc-search-note">{searchData.error}<button type="button" onClick={rebuildSearchIndex}>重试</button></p>
-            : searchData?.status === "idle" ? <p className="epc-search-note">跨图索引未建立<button type="button" onClick={rebuildSearchIndex}>建立索引</button></p>
-            : searchData ? <>
-              {searchData.failed ? <p className="epc-search-note">索引未完整（{searchData.failed} 张图未收录）<button type="button" onClick={rebuildSearchIndex}>重建索引</button></p> : null}
-              <p className="field-note">没有匹配项</p>
-            </> : null}
+            </button>)
+            : searchData?.status === "error" ? <p className="epc-search-note">{searchData.error}<button type="button" onClick={retrySearch}>重试</button></p>
+            : searchData ? <p className="field-note">没有匹配项</p> : null}
         </div> : null}
       </div>
     </div> : null}

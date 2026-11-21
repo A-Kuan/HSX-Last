@@ -17,6 +17,7 @@ import { loadCatalog, loadGroupCounts, loadParts, loadSubgroups } from "./epc-ca
 import { aliasesForOes, aliasKeyOf, deletePartAlias, listPartAliases, oeKeyOf, upsertPartAlias } from "./part-aliases.mjs";
 import { searchEpcWorld } from "./epc-search.mjs";
 import { loadEpcRecords, loadMaintenance, loadMaintenanceParts, loadPartExtras } from "./epc-extras.mjs";
+import { listBrandCatalog, listBrandParts } from "./brand-catalog.mjs";
 
 const json = (res, status, body) => {
   const data = JSON.stringify(body);
@@ -219,6 +220,17 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
       if (req.method === "DELETE" && partAliasMatch) {
         if (!deletePartAlias(db, partAliasMatch[1])) return json(res, 404, { error: "别名不存在" });
         return json(res, 200, { ok: true });
+      }
+      if (req.method === "GET" && pathname === "/api/brand-catalog/brands") {
+        return json(res, 200, { items: listBrandCatalog(db) });
+      }
+      if (req.method === "GET" && pathname === "/api/brand-catalog/items") {
+        return json(res, 200, listBrandParts(db, {
+          brand: String(requestUrl.searchParams.get("brand") || ""),
+          q: String(requestUrl.searchParams.get("q") || ""),
+          page: Number(requestUrl.searchParams.get("page") || 1),
+          size: Number(requestUrl.searchParams.get("size") || 20),
+        }));
       }
       if (req.method === "GET" && pathname === "/api/epc/part-extras") {
         const vin = epcVin();

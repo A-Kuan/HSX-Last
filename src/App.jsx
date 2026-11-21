@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwise, Car, CaretDown, CaretLeft, CaretRight, Check, CheckCircle,
-  DownloadSimple, FileText, Images, ImageSquare, MagnifyingGlass, Minus, PencilSimple,
+  DownloadSimple, FileText, ImageSquare, MagnifyingGlass, Minus, PencilSimple,
   Plus, Power, Prohibit, Trash, UploadSimple, WarningCircle, X,
 } from "@phosphor-icons/react";
 import { api, API_BASE } from "./api.js";
+import { fileToDataUrl } from "./imageUtils.js";
+import SkuImageGallery from "./components/SkuImageGallery.jsx";
 import { nextGroupReference } from "./groupReference.js";
 import { DictionaryAdmin } from "./components/DictionaryAdmin.jsx";
 import MaintenancePage from "./components/MaintenancePage.jsx";
@@ -21,35 +23,6 @@ const STATUS_LABELS = { draft: "草稿", enabled: "启用", disabled: "停用" }
 const SOURCE_LABELS = { oem: "原厂件", brand: "品牌件", used: "拆车件" };
 
 const skuImageUrl = (sku) => `${API_BASE}/skus/${encodeURIComponent(sku.id)}/image?v=${encodeURIComponent(sku.updatedAt || "")}`;
-
-async function decodeImage(file) {
-  if (typeof createImageBitmap === "function") {
-    try {
-      return await createImageBitmap(file);
-    } catch { /* 回退到 <img> 解码（如 HEIC 由浏览器支持时） */ }
-  }
-  const url = URL.createObjectURL(file);
-  try {
-    return await new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error("图片无法解码，请使用 JPG / PNG / WebP"));
-      image.src = url;
-    });
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-async function fileToDataUrl(file) {
-  const bitmap = await decodeImage(file);
-  const scale = Math.min(1, 900 / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.86);
-}
 
 function skuBrandLabel(sku) {
   if (!sku) return "";
@@ -753,7 +726,7 @@ function DetailDrawer({ selected, onClose, onEdit, onViewImage, onUploadImage })
 
 const emptyFitment = () => ({ make: "", series: "", yearFrom: "", yearTo: "", variant: "", engine: "", position: "", source: "", verificationStatus: "pending", note: "" });
 
-function EditDrawer({ selected, groups, onClose, onSaved, onRequestDelete }) {
+function EditDrawer({ selected, groups, onClose, onSaved, onRequestDelete, onImagesChanged }) {
   const editing = Boolean(selected?.sku);
   const initialSku = selected?.sku;
   const initialGroup = selected?.group || groups[0] || null;
@@ -904,8 +877,8 @@ function EditDrawer({ selected, groups, onClose, onSaved, onRequestDelete }) {
         {form.sourceType !== "oem" && <Field label="品牌件号" value={form.partNo} onChange={(value) => set("partNo", value)} error={errors.partNo} />}
         <label>基础单位<SearchSelect ariaLabel="基础单位" value={form.unit} onChange={(value) => set("unit", value)} options={unitOptions.map((unit) => ({ value: unit, label: unit }))} /></label>
         <div className="wb-image">
-          <span className="wb-image-title">商品图</span>
-          <div className="wb-image-body">
+          <span className="wb-image-title">实物图</span>
+          {editing ? <SkuImageGallery skuId={initialSku.id} onChanged={onImagesChanged} onNotice={setNotice} /> : <div className="wb-image-body">
             <button
               type="button"
               className={`wb-image-tile${(form.imagePreview || (form.image && !form.removeImage)) ? " has-image" : ""}`}
@@ -941,7 +914,7 @@ function EditDrawer({ selected, groups, onClose, onSaved, onRequestDelete }) {
                 }
               }}
             />
-          </div>
+          </div>}
         </div>
       </div>
       <div className="wb-sku-col">
@@ -1107,10 +1080,8 @@ export function App() {
   const [toast, setToast] = useState(null);
   const [imageViewer, setImageViewer] = useState(null);
   const [imageTarget, setImageTarget] = useState(null);
-  const [imageBatchBusy, setImageBatchBusy] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
   const imageInputRef = useRef(null);
-  const batchImageInputRef = useRef(null);
   const requestId = useRef(0);
   const lastFilterKey = useRef(null);
 
@@ -1174,52 +1145,6 @@ export function App() {
     }
   };
 
-  const pickBatchImages = () => {
-    if (imageBatchBusy) return;
-    batchImageInputRef.current?.click();
-  };
-
-  const uploadBatchImages = async (event) => {
-    const files = [...(event.target.files || [])];
-    event.target.value = "";
-    if (!files.length || imageBatchBusy) return;
-    const skus = (catalog.groups || []).flatMap((group) => group.skus || []);
-    const normalize = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, "");
-    const byKey = new Map();
-    for (const sku of skus) {
-      const normalized = normalize(sku.id);
-      if (normalized && !byKey.has(normalized)) byKey.set(normalized, sku);
-    }
-    setImageBatchBusy(true);
-    let ok = 0;
-    const failed = [];
-    const unmatched = [];
-    try {
-      for (const file of files) {
-        const base = file.name.replace(/\.[^.]+$/, "");
-        const sku = byKey.get(normalize(base));
-        if (!sku) {
-          unmatched.push(file.name);
-          continue;
-        }
-        try {
-          const dataUrl = await fileToDataUrl(file);
-          await api(`/skus/${encodeURIComponent(sku.id)}/image`, { method: "POST", body: JSON.stringify({ dataUrl }) });
-          ok += 1;
-        } catch (error) {
-          failed.push(`${file.name}：${error.message}`);
-        }
-      }
-      await load({ quiet: true });
-      const chunks = [`已上传 ${ok} 张`];
-      if (failed.length) chunks.push(`失败 ${failed.length} 张（${failed[0]}）`);
-      if (unmatched.length) chunks.push(`未匹配 ${unmatched.length} 个文件（${unmatched.slice(0, 3).join("、")}${unmatched.length > 3 ? "…" : ""}）`);
-      notify(chunks.join("，"), ok > 0 ? "success" : "error");
-    } finally {
-      setImageBatchBusy(false);
-    }
-  };
-
   const changeStatus = async (sku, nextStatus) => {
     try {
       await api(`/skus/${encodeURIComponent(sku.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: nextStatus }) });
@@ -1255,14 +1180,13 @@ export function App() {
       onImport={() => setImportOpen(true)}
       onRefresh={() => load({ quiet: true })}
       onConfigTab={(key) => { setConfigTab(key); setView("config"); }}
-    />{view === "epc" ? <EpcExplorer initialVin={epcVin} /> : view === "groups" ? <GroupAdmin onToast={(message) => notify(message)} /> : view === "vehicles" ? <VehicleAdmin onToast={(message) => notify(message)} onOpenEpc={(vin) => { setEpcVin(vin); setView("epc"); }} /> : view === "vehicle" ? <VehicleLookup onView={setView} /> : view === "aliases" ? <PartAliasAdmin onToast={(message) => notify(message)} /> : view === "maintenance" ? <MaintenancePage onToast={(message) => notify(message)} /> : view === "brandParts" ? <BrandCatalogPage /> : view === "config" ? <DictionaryAdmin key={configTab} initialTab={configTab} onToast={(message) => notify(message)} /> : <main className="workspace"><div className="page-title-row"><div><h1>SKU商品库</h1></div><div className="page-actions"><button className="secondary-button" type="button" onClick={() => setImportOpen(true)}><UploadSimple /> 批量导入</button><button className="secondary-button" type="button" onClick={pickBatchImages} disabled={imageBatchBusy}><Images /> {imageBatchBusy ? "上传中…" : "批量上传图片"}</button><button className="primary-button" type="button" onClick={() => setEdit({})}><Plus /> 新增SKU</button><IconButton label="刷新商品" onClick={() => load({ quiet: true })}><ArrowClockwise /></IconButton></div></div><nav className="status-tabs" role="tablist">{tabs.map(([value, label]) => <button role="tab" aria-selected={status === value} className={status === value ? "is-active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}</button>)}</nav><FilterBar search={search} setSearch={setSearch} category={category} setCategory={setCategory} categories={catalog.categories} /><div className="content-area">{loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => load()} /> : catalog.groups.length ? <ProductTable groups={catalog.groups} expanded={expanded} setExpanded={setExpanded} selected={selected} setSelected={setSelected} onDetail={(sku, group) => setDetail({ sku, group })} onEdit={(sku, group) => setEdit({ sku, group })} onStatus={changeStatus} onDelete={(sku, group) => setRemoving({ sku, group })} onViewImage={setImageViewer} onUploadImage={pickImage} onGroupChanged={() => load({ quiet: true })} /> : <EmptyState filtered={Boolean(search || category || status)} onClear={() => { setSearch(""); setCategory(""); setStatus(""); }} onAdd={() => setEdit({})} onImport={() => setImportOpen(true)} />}</div></main>}{view === "sku" && <BottomBar selectedItems={selectedItems} page={catalog.pagination.page} totalPages={catalog.pagination.totalPages} pageSize={catalog.pagination.pageSize} onPage={setPage} onBatch={() => setBatchOpen(true)} onClear={() => setSelected(new Set())} onExport={async () => { try { const data = await api("/export"); const ids = new Set(selectedItems.map(({ sku }) => sku.id)); const items = ids.size ? data.items.filter((item) => ids.has(item.id)) : data.items; downloadCsv(`SKU资料-${new Date().toISOString().slice(0, 10)}.csv`, exportRows(items)); notify(`已导出 ${items.length} 个 SKU`); } catch (exportError) { notify(exportError.message, "error"); } }} />}
+    />{view === "epc" ? <EpcExplorer initialVin={epcVin} /> : view === "groups" ? <GroupAdmin onToast={(message) => notify(message)} /> : view === "vehicles" ? <VehicleAdmin onToast={(message) => notify(message)} onOpenEpc={(vin) => { setEpcVin(vin); setView("epc"); }} /> : view === "vehicle" ? <VehicleLookup onView={setView} /> : view === "aliases" ? <PartAliasAdmin onToast={(message) => notify(message)} /> : view === "maintenance" ? <MaintenancePage onToast={(message) => notify(message)} /> : view === "brandParts" ? <BrandCatalogPage /> : view === "config" ? <DictionaryAdmin key={configTab} initialTab={configTab} onToast={(message) => notify(message)} /> : <main className="workspace"><div className="page-title-row"><div><h1>SKU商品库</h1></div><div className="page-actions"><button className="secondary-button" type="button" onClick={() => setImportOpen(true)}><UploadSimple /> 批量导入</button><button className="primary-button" type="button" onClick={() => setEdit({})}><Plus /> 新增SKU</button><IconButton label="刷新商品" onClick={() => load({ quiet: true })}><ArrowClockwise /></IconButton></div></div><nav className="status-tabs" role="tablist">{tabs.map(([value, label]) => <button role="tab" aria-selected={status === value} className={status === value ? "is-active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}</button>)}</nav><FilterBar search={search} setSearch={setSearch} category={category} setCategory={setCategory} categories={catalog.categories} /><div className="content-area">{loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => load()} /> : catalog.groups.length ? <ProductTable groups={catalog.groups} expanded={expanded} setExpanded={setExpanded} selected={selected} setSelected={setSelected} onDetail={(sku, group) => setDetail({ sku, group })} onEdit={(sku, group) => setEdit({ sku, group })} onStatus={changeStatus} onDelete={(sku, group) => setRemoving({ sku, group })} onViewImage={setImageViewer} onUploadImage={pickImage} onGroupChanged={() => load({ quiet: true })} /> : <EmptyState filtered={Boolean(search || category || status)} onClear={() => { setSearch(""); setCategory(""); setStatus(""); }} onAdd={() => setEdit({})} onImport={() => setImportOpen(true)} />}</div></main>}{view === "sku" && <BottomBar selectedItems={selectedItems} page={catalog.pagination.page} totalPages={catalog.pagination.totalPages} pageSize={catalog.pagination.pageSize} onPage={setPage} onBatch={() => setBatchOpen(true)} onClear={() => setSelected(new Set())} onExport={async () => { try { const data = await api("/export"); const ids = new Set(selectedItems.map(({ sku }) => sku.id)); const items = ids.size ? data.items.filter((item) => ids.has(item.id)) : data.items; downloadCsv(`SKU资料-${new Date().toISOString().slice(0, 10)}.csv`, exportRows(items)); notify(`已导出 ${items.length} 个 SKU`); } catch (exportError) { notify(exportError.message, "error"); } }} />}
     {detail && <DetailDrawer selected={detail} onClose={() => setDetail(null)} onEdit={() => { setEdit(detail); setDetail(null); }} onViewImage={setImageViewer} onUploadImage={pickImage} />}
-    {edit && <EditDrawer selected={edit} groups={groups} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); notify(edit.sku ? "SKU 资料已更新" : "SKU 已创建"); load({ quiet: true }); }} onRequestDelete={() => setRemoving(edit)} />}
+    {edit && <EditDrawer selected={edit} groups={groups} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); notify(edit.sku ? "SKU 资料已更新" : "SKU 已创建"); load({ quiet: true }); }} onImagesChanged={() => load({ quiet: true })} onRequestDelete={() => setRemoving(edit)} />}
     {removing?.sku && <DeleteSkuModal target={removing} onClose={() => setRemoving(null)} onConfirm={removeSku} />}
     {batchOpen && <BatchModal items={selectedItems} onClose={() => setBatchOpen(false)} onConfirm={async (nextStatus, reason) => { await Promise.all(selectedItems.map(({ sku }) => api(`/skus/${encodeURIComponent(sku.id)}/status`, { method: "PATCH", body: JSON.stringify({ status: nextStatus, reason }) }))); setBatchOpen(false); setSelected(new Set()); notify(`已更新 ${selectedItems.length} 个 SKU`); load({ quiet: true }); }} />}
     {importOpen && <ImportModal groups={groups} onClose={() => setImportOpen(false)} onImported={(result) => { setImportOpen(false); notify(`已导入 ${result.valid} 个 SKU`); load({ quiet: true }); }} />}
     <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={uploadImage} aria-label="上传商品图" />
-      <input ref={batchImageInputRef} type="file" accept="image/*" multiple hidden onChange={uploadBatchImages} aria-label="批量上传商品图" />
     {imageViewer ? <div className="overlay image-viewer" onMouseDown={(event) => { if (event.target === event.currentTarget) setImageViewer(null); }}>
       <div className="image-viewer-box" role="dialog" aria-modal="true" aria-label={`${imageViewer.id} 商品图`}>
         <img src={skuImageUrl(imageViewer)} alt={imageViewer.id} />

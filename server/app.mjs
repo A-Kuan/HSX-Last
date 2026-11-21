@@ -8,6 +8,7 @@ import {
   createVehicleGeneration, deleteVehicleGeneration,
   listActivity, listBrands, listCatalog, listDictionaries, listGroups, listPartTypes, listSkuRelations, listVehicles,
   listVehicleGenerations, lookupVehicleParts, mergeGroups, openDatabase, previewGroupMerge, readEpcVinCache, readSku,
+  addSkuImages, deleteSkuImage, listSkuImages,
   readVehicle, updateDictionaryItem, updateGroup, updateSku, updateSkuImage, updateStatus, updateVehicle,
   updateVehicleGeneration, resolveVehicleGeneration,
   writeEpcVinCache,
@@ -350,10 +351,48 @@ export function createApp({ db = openDatabase(), uploadDir = process.env.SKU_UPL
       }
       const skuMatch = pathname.match(/^\/api\/skus\/([^/]+)$/);
       const skuImageMatch = pathname.match(/^\/api\/skus\/([^/]+)\/image$/);
+      const skuImagesMatch = pathname.match(/^\/api\/skus\/([^/]+)\/images$/);
+      const skuImageItemMatch = pathname.match(/^\/api\/skus\/([^/]+)\/images\/(\d+)$/);
       const statusMatch = pathname.match(/^\/api\/skus\/([^/]+)\/status$/);
       const activityMatch = pathname.match(/^\/api\/skus\/([^/]+)\/activity$/);
       const relationsMatch = pathname.match(/^\/api\/skus\/([^/]+)\/relations$/);
       const relationMatch = pathname.match(/^\/api\/relations\/(\d+)$/);
+      if (skuImagesMatch && req.method === "GET") {
+        const skuId = decodeURIComponent(skuImagesMatch[1]);
+        return json(res, 200, { images: listSkuImages(db, skuId) });
+      }
+      if (skuImagesMatch && req.method === "POST") {
+        const skuId = decodeURIComponent(skuImagesMatch[1]);
+        const body = await readJson(req);
+        const dataUrls = Array.isArray(body.dataUrls) ? body.dataUrls.filter((item) => typeof item === "string").slice(0, 12) : [];
+        if (!dataUrls.length) return json(res, 422, { error: "请选择图片" });
+        const filenames = dataUrls.map((dataUrl) => storeImage(skuId, dataUrl));
+        return json(res, 200, { images: addSkuImages(db, skuId, filenames) });
+      }
+      if (skuImageItemMatch && req.method === "GET") {
+        const skuId = decodeURIComponent(skuImageItemMatch[1]);
+        const imageId = Number(skuImageItemMatch[2]);
+        const row = listSkuImages(db, skuId).find((item) => Number(item.id) === imageId);
+        if (!row) return json(res, 404, { error: "图片不存在" });
+        const file = join(uploadDir, row.filename);
+        if (!existsSync(file)) return json(res, 404, { error: "图片文件不存在" });
+        const extension = String(row.filename).split(".").pop().toLowerCase();
+        res.writeHead(200, {
+          "content-type": IMAGE_TYPES[extension] || "application/octet-stream",
+          "cache-control": "private, max-age=60",
+          "x-content-type-options": "nosniff",
+        });
+        res.end(readFileSync(file));
+        return;
+      }
+      if (skuImageItemMatch && req.method === "DELETE") {
+        const skuId = decodeURIComponent(skuImageItemMatch[1]);
+        const imageId = Number(skuImageItemMatch[2]);
+        const filename = deleteSkuImage(db, skuId, imageId);
+        if (!filename) return json(res, 404, { error: "图片不存在" });
+        try { unlinkSync(join(uploadDir, filename)); } catch { /* 忽略缺失文件 */ }
+        return json(res, 200, { images: listSkuImages(db, skuId) });
+      }
       if (skuImageMatch && req.method === "GET") {
         const sku = readSku(db, decodeURIComponent(skuImageMatch[1]));
         if (!sku || !sku.image) return json(res, 404, { error: "没有商品图" });

@@ -1572,3 +1572,12 @@ input[type="text"], input[type="number"], input:not([type]), textarea, .local-se
 
 /* 没有本店商品时收窄为单栏 */
 .epc-drawer--wide.is-single { width: min(720px, calc(100vw - 120px)); }
+
+/* SKU 实物图图集（SKU 抽屉内） */
+.sku-image-gallery { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sku-image-item { position: relative; width: 72px; height: 72px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: #f7f9fc; }
+.sku-image-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sku-image-remove { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border: 0; border-radius: 50%; background: rgba(17, 24, 39, .65); color: #fff; display: grid; place-items: center; cursor: pointer; padding: 0; }
+.sku-image-add { width: 72px; height: 72px; border: 1px dashed var(--line-strong); border-radius: 8px; background: #fafbfd; color: var(--muted); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; cursor: pointer; }
+.sku-image-add:hover { border-color: var(--brand); color: var(--brand); }
+.sku-image-add:disabled { opacity: .6; cursor: default; }

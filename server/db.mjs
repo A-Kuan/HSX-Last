@@ -62,6 +62,14 @@ function migrate(db) {
       PRIMARY KEY (sku_id, normalized_oe)
     );
     CREATE INDEX IF NOT EXISTS idx_sku_oe_normalized ON sku_oe_numbers(normalized_oe);
+    CREATE TABLE IF NOT EXISTS sku_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sku_id TEXT NOT NULL REFERENCES skus(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sku_images_sku ON sku_images(sku_id);
     CREATE TABLE IF NOT EXISTS group_oe_numbers (
       group_id TEXT NOT NULL REFERENCES product_groups(id) ON DELETE CASCADE,
       oe_no TEXT NOT NULL,
@@ -249,6 +257,9 @@ function migrate(db) {
   ensureColumn(db, "skus", "source_type", "TEXT NOT NULL DEFAULT 'brand'");
   ensureColumn(db, "skus", "oem_brand", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "skus", "image", "TEXT NOT NULL DEFAULT ''");
+  db.prepare(`INSERT INTO sku_images (sku_id, filename, sort_order, created_at)
+    SELECT s.id, s.image, 0, s.updated_at FROM skus s
+    WHERE s.image <> '' AND NOT EXISTS (SELECT 1 FROM sku_images i WHERE i.sku_id = s.id)`).run();
   ensureColumn(db, "vehicles", "vin", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "vehicles", "displacement", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "epc_search_index", "diagrams", "INTEGER NOT NULL DEFAULT 0");
@@ -2046,4 +2057,28 @@ export function lookupVehicleParts(db, rawQuery = "") {
     missing: categories.filter((category) => !category.items.length).map((category) => category.partType.name),
     candidates: [],
   };
+}
+
+
+export function listSkuImages(db, skuId) {
+  return db.prepare("SELECT id, filename, sort_order FROM sku_images WHERE sku_id = ? ORDER BY sort_order, id").all(skuId);
+}
+
+export function addSkuImages(db, skuId, filenames) {
+  const max = db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS value FROM sku_images WHERE sku_id = ?").get(skuId)?.value ?? -1;
+  const insert = db.prepare("INSERT INTO sku_images (sku_id, filename, sort_order, created_at) VALUES (?, ?, ?, ?)");
+  const now = new Date().toISOString();
+  filenames.forEach((filename, index) => insert.run(skuId, filename, max + 1 + index, now));
+  const cover = db.prepare("SELECT filename FROM sku_images WHERE sku_id = ? ORDER BY sort_order, id LIMIT 1").get(skuId)?.filename || "";
+  db.prepare("UPDATE skus SET image = ? WHERE id = ?").run(cover, skuId);
+  return listSkuImages(db, skuId);
+}
+
+export function deleteSkuImage(db, skuId, imageId) {
+  const row = db.prepare("SELECT id, filename FROM sku_images WHERE id = ? AND sku_id = ?").get(imageId, skuId);
+  if (!row) return null;
+  db.prepare("DELETE FROM sku_images WHERE id = ? AND sku_id = ?").run(imageId, skuId);
+  const cover = db.prepare("SELECT filename FROM sku_images WHERE sku_id = ? ORDER BY sort_order, id LIMIT 1").get(skuId)?.filename || "";
+  db.prepare("UPDATE skus SET image = ? WHERE id = ?").run(cover, skuId);
+  return row.filename;
 }
